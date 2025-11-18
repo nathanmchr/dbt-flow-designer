@@ -9,4 +9,30 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+  button,
+  input {
+    @apply cursor-pointer;
+  }
+
+  header {
+    @apply bg-white px-6 py-4 w-full shadow-lg justify-between items-center flex flex-row;
+  }
+  header h1 {
+    @apply text-orange-600 font-bold text-3xl;
+  }
+}
+
+@layer components {
+  .main-content {
+    @apply flex flex-row w-full min-h-[calc(100vh-5rem)] gap-4 p-4;
+  }
+
+  .panel {
+    @apply bg-white rounded-xl shadow-lg border-gray-200 p-4;
+  }
 }
