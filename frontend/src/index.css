@@ -1,14 +1,20 @@
 @import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
 
+@theme {
+  --color-background-light: ;
+}
 @layer base {
   :root {
     font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
 
+    @apply bg-gray-50 dark:bg-gray-900 text-black dark:text-white;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
   html,
   body,
   #root {
@@ -16,11 +22,11 @@
   }
   button,
   input {
-    @apply cursor-pointer;
+    @apply cursor-pointer border border-gray-200 dark:border-gray-700;
   }
 
   header {
-    @apply bg-white px-6 py-4 w-full shadow-lg justify-between items-center flex flex-row;
+    @apply absolute top-0 bg-white/30 dark:bg-gray-800/50 backdrop-blur-lg border-b border-gray-200 dark:border-gray-700 px-6 py-4 w-full shadow-lg justify-between items-center flex flex-row z-50;
   }
   header h1 {
     @apply text-orange-600 font-bold text-3xl;
@@ -29,10 +35,57 @@
 
 @layer components {
   .main-content {
-    @apply flex flex-row w-full min-h-[calc(100vh-5rem)] gap-4 p-4;
+    @apply flex flex-row w-full min-h-[calc(100vh-5rem)] px-4;
   }
 
   .panel {
-    @apply bg-white rounded-xl shadow-lg border-gray-200 p-4;
+    @apply bg-white/30 dark:bg-gray-800/50 backdrop-blur-lg rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 my-4 overflow-x-clip;
+  }
+
+  .flowchart {
+    @apply absolute top-0 left-0 w-full h-full;
+  }
+
+  .node {
+    @apply border border-gray-200 dark:border-gray-700 bg-white/30 dark:bg-gray-800/50 backdrop-blur-md px-6 py-4 rounded-xl shadow-md;
+  }
+}
+
+.react-flow .react-flow__controls {
+  @apply mb-4 ml-77 gap-2 shadow-none;
+}
+.react-flow .react-flow__controls-button {
+  @apply rounded-md border border-gray-200 dark:border-gray-700 bg-white/30 dark:bg-gray-800/50 backdrop-blur-md shadow-md;
+}
+
+.react-flow__minimap {
+  @apply opacity-60 mr-77;
+}
+
+.react-flow__minimap-svg path {
+  @apply fill-gray-200 dark:fill-gray-800;
+}
+
+.react-flow__minimap-node {
+  @apply fill-gray-200 dark:fill-gray-800!;
+}
+
+.react-flow__attribution {
+  @apply opacity-60 mr-130 mb-4 bg-white dark:bg-gray-800;
+}
+
+.react-flow {
+  --xy-minimap-background-color-default: theme("colors.white");
+  --xy-minimap-node-color-default: theme("colors.gray.100");
+  --xy-handle-background-color-default: theme("colors.orange.600");
+  --xy-handle-border-color-default: theme("colors.gray.200");
+}
+
+@media (prefers-color-scheme: dark) {
+  .react-flow {
+    --xy-background-pattern-dots-color-default: theme("colors.gray.600");
+    --xy-minimap-background-color-default: theme("colors.gray.900");
+    --xy-handle-background-color-default: theme("colors.orange.600");
+    --xy-handle-border-color-default: theme("colors.gray.700");
   }
 }
