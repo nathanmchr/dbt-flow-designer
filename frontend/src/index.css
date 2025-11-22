@@ -8,7 +8,7 @@
   :root {
     font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
 
-    @apply bg-gray-50 dark:bg-gray-900 text-black dark:text-white;
+    @apply bg-gray-200 dark:bg-gray-900 text-black dark:text-white;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -39,7 +39,7 @@
   }
 
   .panel {
-    @apply bg-white/30 dark:bg-gray-800/50 backdrop-blur-lg rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 my-4 overflow-x-clip;
+    @apply bg-white/50 dark:bg-gray-800/50 backdrop-blur-lg rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 p-4 my-4 overflow-x-clip;
   }
 
   .flowchart {
@@ -47,7 +47,11 @@
   }
 
   .node {
-    @apply border border-gray-200 dark:border-gray-700 bg-white/30 dark:bg-gray-800/50 backdrop-blur-md px-6 py-4 rounded-xl shadow-md;
+    @apply border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-800/50 backdrop-blur-md px-6 py-4 rounded-xl shadow-md;
+  }
+
+  .tooltip-content {
+    @apply fixed z-9999 w-72 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm border border-gray-200 dark:border-gray-700 rounded-lg shadow-xl p-3 pointer-events-none text-xs;
   }
 }
 
@@ -55,7 +59,7 @@
   @apply mb-4 ml-77 gap-2 shadow-none;
 }
 .react-flow .react-flow__controls-button {
-  @apply rounded-md border border-gray-200 dark:border-gray-700 bg-white/30 dark:bg-gray-800/50 backdrop-blur-md shadow-md;
+  @apply rounded-md border border-gray-200 dark:border-gray-700 bg-white/50 dark:bg-gray-800/50 backdrop-blur-md shadow-md;
 }
 
 .react-flow__minimap {
@@ -71,21 +75,21 @@
 }
 
 .react-flow__attribution {
-  @apply opacity-60 mr-130 mb-4 bg-white dark:bg-gray-800;
+  @apply opacity-60 mb-4 ml-86 bg-white dark:bg-gray-800 left-0! right-auto!;
 }
 
 .react-flow {
   --xy-minimap-background-color-default: theme("colors.white");
   --xy-minimap-node-color-default: theme("colors.gray.100");
-  --xy-handle-background-color-default: theme("colors.orange.600");
-  --xy-handle-border-color-default: theme("colors.gray.200");
+  --xy-handle-background-color-default: theme("colors.gray.300");
+  --xy-handle-border-color-default: theme("colors.gray.300");
 }
 
 @media (prefers-color-scheme: dark) {
   .react-flow {
     --xy-background-pattern-dots-color-default: theme("colors.gray.600");
     --xy-minimap-background-color-default: theme("colors.gray.900");
-    --xy-handle-background-color-default: theme("colors.orange.600");
+    --xy-handle-background-color-default: theme("colors.gray.700");
     --xy-handle-border-color-default: theme("colors.gray.700");
   }
 }

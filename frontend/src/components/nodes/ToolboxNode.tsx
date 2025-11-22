@@ -1,4 +1,5 @@
 import type { OperationDefinition } from "../../domain/operations";
+import { getOperationIcon } from "../icons";
 
 interface ToolboxNodeProps {
   operation: OperationDefinition;
@@ -62,8 +63,8 @@ export default function ToolboxNode({
       {/* Content */}
       <div className="flex flex-col items-start relative z-10">
         <div className="flex items-center">
-          <div className="rounded-full w-10 h-10 flex justify-center items-center bg-gray-100 dark:bg-gray-700 text-lg">
-            {operation.label[0]}
+          <div className="rounded-full w-10 h-10 flex justify-center items-center bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
+            {getOperationIcon(operation.id, "w-5 h-5")}
           </div>
           <div className="ml-3">
             <div className="text-sm font-bold text-gray-900 dark:text-gray-100">

@@ -7,9 +7,21 @@ export type OperationCategory = "source" | "transform" | "output" | "advanced";
 export interface OperationParam {
   name: string;
   label: string;
-  type: "string" | "number" | "boolean" | "select" | "column-list" | "table";
+  type:
+    | "string"
+    | "number"
+    | "boolean"
+    | "select"
+    | "column-list"
+    | "column-select"
+    | "column-rename"
+    | "table"
+    | "column-definition"
+    | "filter-condition"
+    | "join-condition";
   required?: boolean;
   options?: string[];
+  tooltip?: string;
 }
 
 export interface OperationDefinition {
@@ -30,6 +42,29 @@ export const OPERATION_DEFS: OperationDefinition[] = [
   // ------------------------------------------------------------
   // SOURCE OPERATIONS
   // ------------------------------------------------------------
+  {
+    id: "source-manual",
+    label: "Manual Table",
+    description:
+      "Define a table structure manually without a database connection.",
+    category: "source",
+    inputs: 0,
+    outputs: 1,
+    params: [
+      {
+        name: "table_name",
+        label: "Table Name",
+        type: "string",
+        required: true,
+      },
+      {
+        name: "columns",
+        label: "Column Definitions",
+        type: "column-definition",
+        required: true,
+      },
+    ],
+  },
   {
     id: "source-table",
     label: "Table",
@@ -61,8 +96,10 @@ export const OPERATION_DEFS: OperationDefinition[] = [
       {
         name: "columns",
         label: "Columns",
-        type: "column-list",
+        type: "column-rename",
         required: true,
+        tooltip:
+          "Select columns to include in the output. Use aliases to rename columns or avoid naming conflicts (e.g., when joining tables with columns of the same name).",
       },
     ],
   },
@@ -76,8 +113,8 @@ export const OPERATION_DEFS: OperationDefinition[] = [
     params: [
       {
         name: "condition",
-        label: "Condition",
-        type: "string",
+        label: "Filter Condition",
+        type: "filter-condition",
         required: true,
       },
     ],
@@ -100,7 +137,7 @@ export const OPERATION_DEFS: OperationDefinition[] = [
       {
         name: "on",
         label: "Join Condition",
-        type: "string",
+        type: "join-condition",
         required: true,
       },
     ],
@@ -137,7 +174,7 @@ export const OPERATION_DEFS: OperationDefinition[] = [
       {
         name: "column",
         label: "Sort Column",
-        type: "string",
+        type: "column-select",
         required: true,
       },
       {

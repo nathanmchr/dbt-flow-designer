@@ -24,6 +24,9 @@ function Toolbox({ onAddNode }: ToolboxProps) {
 
   return (
     <div className="panel fixed left-4 top-21 z-50 w-70 h-[calc(100%-115px)] overflow-y-auto">
+      <p className="text-xs uppercase sticky top-0 tracking-[0.2em] text-gray-400">
+        Toolbox
+      </p>
       {Object.entries(categories).map(([cat, ops]) => (
         <div key={cat} className="category mb-4">
           <h3 className="font-semibold mb-2">{categoryTitles[cat] || cat}</h3>
