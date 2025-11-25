@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type { OperationDefinition, OperationParam } from "../domain/operations";
 import type { ColumnDefinition } from "../domain/columnPropagation";
+import FilterBuilder, { type FilterGroup } from "./FilterBuilder";
 
 type InspectorNode = {
   id: string;
@@ -13,6 +14,8 @@ interface InspectorProps {
   node: InspectorNode | null;
   onSave: (nodeId: string, params: Record<string, unknown>) => void;
   onClearSelection: () => void;
+  onClose: () => void;
+  onDelete: (nodeId: string) => void;
   availableColumns: ColumnDefinition[];
 }
 
@@ -24,6 +27,21 @@ function getDefaultValue(param: OperationParam) {
   if (param.type === "column-rename") return [];
   if (param.type === "filter-condition")
     return { column: "", operator: "=", value: "" };
+  if (param.type === "filter-builder")
+    return {
+      id: "root",
+      type: "group",
+      operators: [],
+      children: [
+        {
+          id: `node-${Date.now()}-0`,
+          type: "condition",
+          column: "",
+          operator: "",
+          value: "",
+        },
+      ],
+    };
   if (param.type === "join-condition")
     return { leftColumn: "", operator: "=", rightColumn: "" };
   return "";
@@ -71,6 +89,8 @@ function Inspector({
   node,
   onSave,
   onClearSelection,
+  onClose,
+  onDelete,
   availableColumns,
 }: InspectorProps) {
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
@@ -79,14 +99,52 @@ function Inspector({
   const [joinColumnTarget, setJoinColumnTarget] = useState<"left" | "right">(
     "left"
   );
+  const [width, setWidth] = useState(280); // w-70 = 280px
+  const [isResizing, setIsResizing] = useState(false);
+
+  // Handle resizing
+  useEffect(() => {
+    if (!isResizing) return;
+
+    // Prevent text selection and fix cursor during resize
+    document.body.classList.add("resizing");
+    document.body.style.userSelect = "none";
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const newWidth = window.innerWidth - e.clientX - 16; // 16px for right margin
+      setWidth(Math.max(280, Math.min(newWidth, 800))); // min 280px, max 800px
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+
+    return () => {
+      document.removeEventListener("mousemove", handleMouseMove);
+      document.removeEventListener("mouseup", handleMouseUp);
+      // Restore default styles
+      document.body.classList.remove("resizing");
+      document.body.style.userSelect = "";
+    };
+  }, [isResizing]);
 
   useEffect(() => {
     let timeout: number | undefined;
     if (node) {
-      setRenderedNode(node);
-      requestAnimationFrame(() => setStage("enter"));
+      setTimeout(() => {
+        setRenderedNode(node);
+        // Wait for render then animate
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setStage("enter");
+          });
+        });
+      }, 0);
     } else if (renderedNode) {
-      setStage("exit");
+      setTimeout(() => setStage("exit"), 0);
       timeout = window.setTimeout(() => {
         setRenderedNode(null);
         setFormValues({});
@@ -108,7 +166,7 @@ function Inspector({
         currentValue !== undefined ? currentValue : getDefaultValue(param);
       return acc;
     }, {});
-    setFormValues(initialValues);
+    setTimeout(() => setFormValues(initialValues), 0);
   }, [renderedNode?.id]);
 
   // Auto-update column references when columns are renamed
@@ -273,14 +331,14 @@ function Inspector({
     });
 
     if (hasChanges) {
-      setFormValues(updatedValues);
-      setInvalidColumnsDetected(true);
+      setTimeout(() => setFormValues(updatedValues), 0);
+      setTimeout(() => setInvalidColumnsDetected(true), 0);
       // Clear the warning after 5 seconds
       setTimeout(() => setInvalidColumnsDetected(false), 5000);
     }
 
     // Update previous columns for next iteration
-    setPreviousAvailableColumns(availableColumns);
+    setTimeout(() => setPreviousAvailableColumns(availableColumns), 0);
   }, [availableColumns, renderedNode, formValues]);
 
   const paramFields = useMemo(
@@ -298,6 +356,7 @@ function Inspector({
       | Array<{ original: string; alias?: string }>
       | { column: string; operator: string; value: string }
       | { leftColumn: string; operator: string; rightColumn: string }
+      | FilterGroup
   ) => {
     setFormValues((prev) => ({
       ...prev,
@@ -335,830 +394,925 @@ function Inspector({
 
   return (
     <div
-      className="panel fixed right-4 top-21 z-50 w-70 h-[calc(100%-115px)] overflow-y-auto"
-      style={panelStyle}
+      className="panel fixed right-4 top-21 z-50 h-[calc(100%-115px)] flex flex-col"
+      style={{ ...panelStyle, width: `${width}px` }}
     >
+      {/* Resize handle */}
+      <div
+        className="absolute left-0 top-0 bottom-0 w-1 cursor-col-resize z-50"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          setIsResizing(true);
+        }}
+      />
       {!renderedNode ? (
         <div className="text-sm text-gray-500">
           Select a node and click on <strong>Configure</strong> to change its
           parameters.
         </div>
       ) : (
-        <div className="space-y-4">
-          <div>
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-400">
+        <>
+          <div className="shrink-0 pb-2 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
+            <p className="text-xs uppercase tracking-[0.2em] text-gray-400 font-bold">
               Parameters
             </p>
-            <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-              {renderedNode.operation.label}
-            </h2>
-            <p className="text-sm text-gray-500">
-              {renderedNode.operation.description}
-            </p>
+            <button
+              onClick={onClose}
+              className="text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 backdrop-blur-md rounded-full p-1 border border-gray-300 hover:border-gray-200 dark:border-gray-600 dark:hover:border-gray-500 bg-gray-300/50 dark:bg-gray-600/50 hover:bg-white/50 dark:hover:bg-gray-400/50 shadow-md hover:shadow-xl dark:hover:shadow-lg dark:shadow-black/20 hover:shadow-white dark:hover:shadow-white/10 transition-colors"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={3}
+                  d="M6 18L18 6M6 6l12 12"
+                />
+              </svg>
+            </button>
           </div>
-
-          {/* Global warning for invalid columns */}
-          {invalidColumnsDetected && (
-            <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-sm text-yellow-700 dark:text-yellow-400">
-              ⚠️ Some column references were removed because they no longer
-              exist in the source
-            </div>
-          )}
-
-          {/* Info banner for manual source */}
-          {renderedNode.operation.id === "source-manual" && (
-            <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
-              <div className="flex gap-3">
-                <svg
-                  className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                <div className="flex-1">
-                  <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-1">
-                    Mode sans connexion
-                  </h3>
-                  <p className="text-xs text-blue-700 dark:text-blue-300">
-                    Le test n'est pas disponible sans connexion à une source de
-                    données, mais vous pouvez tout de même définir votre modèle.
-                  </p>
-                </div>
+          <div className="overflow-y-auto flex-1 mask-gradient-top pr-2 -mr-2">
+            <div className="pt-4 pb-4 space-y-4">
+              <div>
+                <h2 className="text-lg font-semibold">
+                  {renderedNode.operation.label}
+                </h2>
+                <p className="text-sm text-gray-500">
+                  {renderedNode.operation.description}
+                </p>
               </div>
-            </div>
-          )}
 
-          {/* Available columns from upstream nodes */}
-          {availableColumns.length > 0 && (
-            <div className="rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-4">
-              <h3 className="text-sm font-semibold text-green-900 dark:text-green-200 mb-2 flex items-center gap-2">
-                <svg
-                  className="w-4 h-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-                  />
-                </svg>
-                Available Columns ({availableColumns.length})
-              </h3>
-              <p className="text-xs text-green-700 dark:text-green-400 mb-3">
-                Click to select columns for parameters below
-              </p>
-              <div className="flex flex-wrap gap-2">
-                {availableColumns.map((col, idx) => {
-                  // Find various column parameter types
-                  const columnListParam = paramFields.find(
-                    (p) => p.type === "column-list"
-                  );
-                  const columnSelectParam = paramFields.find(
-                    (p) => p.type === "column-select"
-                  );
-                  const columnRenameParam = paramFields.find(
-                    (p) => p.type === "column-rename"
-                  );
-                  const filterConditionParam = paramFields.find(
-                    (p) => p.type === "filter-condition"
-                  );
-                  const joinConditionParam = paramFields.find(
-                    (p) => p.type === "join-condition"
-                  );
+              {/* Global warning for invalid columns */}
+              {invalidColumnsDetected && (
+                <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-sm text-yellow-700 dark:text-yellow-400">
+                  ⚠️ Some column references were removed because they no longer
+                  exist in the source
+                </div>
+              )}
 
-                  // Determine which parameter to use (priority order)
-                  const targetParam =
-                    columnSelectParam ||
-                    filterConditionParam ||
-                    columnRenameParam ||
-                    columnListParam ||
-                    joinConditionParam;
+              {/* Info banner for manual source */}
+              {renderedNode.operation.id === "source-manual" && (
+                <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
+                  <div className="flex gap-3">
+                    <svg
+                      className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+                      />
+                    </svg>
+                    <div className="flex-1">
+                      <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-1">
+                        Offline table
+                      </h3>
+                      <p className="text-xs text-blue-700 dark:text-blue-300">
+                        This node allows you to define a table model without
+                        needing a live database connection. It is useful when
+                        preparing a model that will be referenced later, for
+                        example during the design or prototyping phase, when the
+                        actual database is not yet available. Models created
+                        this way cannot be tested or ran here.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
-                  // Check if this column is selected
-                  let isSelected = false;
-                  if (targetParam) {
-                    if (targetParam.type === "column-select") {
-                      isSelected = formValues[targetParam.name] === col.name;
-                    } else if (targetParam.type === "filter-condition") {
-                      isSelected =
-                        (
-                          formValues[targetParam.name] as {
-                            column: string;
-                            operator: string;
-                            value: string;
-                          }
-                        )?.column === col.name;
-                    } else if (targetParam.type === "column-rename") {
-                      const renameValue = formValues[
-                        targetParam.name
-                      ] as Array<{
-                        original: string;
-                        alias?: string;
-                      }>;
-                      isSelected = (renameValue || []).some(
-                        (item) => item.original === col.name
+              {/* Available columns from upstream nodes */}
+              {availableColumns.length > 0 && (
+                <div className="rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-4">
+                  <h3 className="text-sm font-semibold text-green-900 dark:text-green-200 mb-2 flex items-center gap-2">
+                    <svg
+                      className="w-4 h-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
+                    </svg>
+                    Available Columns ({availableColumns.length})
+                  </h3>
+                  <p className="text-xs text-green-700 dark:text-green-400 mb-3">
+                    Click to select columns for parameters below
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {availableColumns.map((col, idx) => {
+                      // Find various column parameter types
+                      const columnListParam = paramFields.find(
+                        (p) => p.type === "column-list"
                       );
-                    } else if (targetParam.type === "join-condition") {
-                      const joinValue = formValues[targetParam.name] as {
-                        leftColumn: string;
-                        operator: string;
-                        rightColumn: string;
-                      };
-                      // Only highlight if it's in the currently active field
-                      isSelected =
-                        joinColumnTarget === "left"
-                          ? joinValue?.leftColumn === col.name
-                          : joinValue?.rightColumn === col.name;
-                    } else if (targetParam.type === "column-list") {
-                      isSelected = (
-                        (formValues[targetParam.name] as string) || ""
-                      )
-                        .split(",")
-                        .map((c) => c.trim())
-                        .filter(Boolean)
-                        .includes(col.name);
-                    }
-                  }
+                      const columnSelectParam = paramFields.find(
+                        (p) => p.type === "column-select"
+                      );
+                      const columnRenameParam = paramFields.find(
+                        (p) => p.type === "column-rename"
+                      );
+                      const filterConditionParam = paramFields.find(
+                        (p) => p.type === "filter-condition"
+                      );
+                      const joinConditionParam = paramFields.find(
+                        (p) => p.type === "join-condition"
+                      );
 
-                  return (
-                    <button
-                      key={idx}
-                      type="button"
-                      className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
-                        isSelected
-                          ? "bg-green-600 dark:bg-green-700 border-green-600 dark:border-green-700"
-                          : "bg-white dark:bg-gray-800 border-green-200 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900/40"
-                      }`}
-                      onClick={() => {
-                        if (!targetParam) return;
+                      // Determine which parameter to use (priority order)
+                      const targetParam =
+                        columnSelectParam ||
+                        filterConditionParam ||
+                        columnRenameParam ||
+                        columnListParam ||
+                        joinConditionParam;
 
+                      // Check if this column is selected
+                      let isSelected = false;
+                      if (targetParam) {
                         if (targetParam.type === "column-select") {
-                          // Single selection: just set the value
-                          handleChange(targetParam, col.name);
+                          isSelected =
+                            formValues[targetParam.name] === col.name;
                         } else if (targetParam.type === "filter-condition") {
-                          const currentFilter = (formValues[
-                            targetParam.name
-                          ] as {
-                            column: string;
-                            operator: string;
-                            value: string;
-                          }) || { column: "", operator: "=", value: "" };
-                          handleChange(targetParam, {
-                            ...currentFilter,
-                            column: col.name,
-                          });
+                          isSelected =
+                            (
+                              formValues[targetParam.name] as {
+                                column: string;
+                                operator: string;
+                                value: string;
+                              }
+                            )?.column === col.name;
                         } else if (targetParam.type === "column-rename") {
-                          // Toggle column in rename list
-                          const currentValue =
-                            (formValues[targetParam.name] as Array<{
+                          const renameValue = formValues[
+                            targetParam.name
+                          ] as Array<{
+                            original: string;
+                            alias?: string;
+                          }>;
+                          isSelected = (renameValue || []).some(
+                            (item) => item.original === col.name
+                          );
+                        } else if (targetParam.type === "join-condition") {
+                          const joinValue = formValues[targetParam.name] as {
+                            leftColumn: string;
+                            operator: string;
+                            rightColumn: string;
+                          };
+                          // Only highlight if it's in the currently active field
+                          isSelected =
+                            joinColumnTarget === "left"
+                              ? joinValue?.leftColumn === col.name
+                              : joinValue?.rightColumn === col.name;
+                        } else if (targetParam.type === "column-list") {
+                          isSelected = (
+                            (formValues[targetParam.name] as string) || ""
+                          )
+                            .split(",")
+                            .map((c) => c.trim())
+                            .filter(Boolean)
+                            .includes(col.name);
+                        }
+                      }
+
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
+                            isSelected
+                              ? "bg-green-600 dark:bg-green-700 border-green-600 dark:border-green-700"
+                              : "bg-white dark:bg-gray-800 border-green-200 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900/40"
+                          }`}
+                          onClick={() => {
+                            if (!targetParam) return;
+
+                            if (targetParam.type === "column-select") {
+                              // Single selection: just set the value
+                              handleChange(targetParam, col.name);
+                            } else if (
+                              targetParam.type === "filter-condition"
+                            ) {
+                              const currentFilter = (formValues[
+                                targetParam.name
+                              ] as {
+                                column: string;
+                                operator: string;
+                                value: string;
+                              }) || { column: "", operator: "=", value: "" };
+                              handleChange(targetParam, {
+                                ...currentFilter,
+                                column: col.name,
+                              });
+                            } else if (targetParam.type === "column-rename") {
+                              // Toggle column in rename list
+                              const currentValue =
+                                (formValues[targetParam.name] as Array<{
+                                  original: string;
+                                  alias?: string;
+                                }>) || [];
+
+                              const exists = currentValue.some(
+                                (item) => item.original === col.name
+                              );
+
+                              let newValue;
+                              if (exists) {
+                                // Remove column
+                                newValue = currentValue.filter(
+                                  (item) => item.original !== col.name
+                                );
+                              } else {
+                                // Add column with empty alias
+                                newValue = [
+                                  ...currentValue,
+                                  { original: col.name, alias: "" },
+                                ];
+                              }
+
+                              handleChange(targetParam, newValue);
+                            } else if (targetParam.type === "join-condition") {
+                              // For join, update the active column (left or right)
+                              const currentJoin = (formValues[
+                                targetParam.name
+                              ] as {
+                                leftColumn: string;
+                                operator: string;
+                                rightColumn: string;
+                              }) || {
+                                leftColumn: "",
+                                operator: "=",
+                                rightColumn: "",
+                              };
+
+                              // Prevent selecting the same column in both fields
+                              const otherColumn =
+                                joinColumnTarget === "left"
+                                  ? currentJoin.rightColumn
+                                  : currentJoin.leftColumn;
+
+                              if (col.name === otherColumn) {
+                                // Don't allow selecting the same column
+                                return;
+                              }
+
+                              handleChange(targetParam, {
+                                ...currentJoin,
+                                [joinColumnTarget === "left"
+                                  ? "leftColumn"
+                                  : "rightColumn"]: col.name,
+                              });
+                            } else if (targetParam.type === "column-list") {
+                              // Multi selection: toggle
+                              const currentValue =
+                                (formValues[targetParam.name] as string) || "";
+                              const currentColumns = currentValue
+                                .split(",")
+                                .map((c) => c.trim())
+                                .filter(Boolean);
+
+                              let newColumns: string[];
+                              if (currentColumns.includes(col.name)) {
+                                // Remove column
+                                newColumns = currentColumns.filter(
+                                  (c) => c !== col.name
+                                );
+                              } else {
+                                // Add column
+                                newColumns = [...currentColumns, col.name];
+                              }
+
+                              handleChange(targetParam, newColumns.join(", "));
+                            }
+                          }}
+                        >
+                          <span
+                            className={`text-xs font-medium ${
+                              isSelected
+                                ? "text-white"
+                                : "text-gray-900 dark:text-white"
+                            }`}
+                          >
+                            {col.name}
+                          </span>
+                          <span
+                            className={`text-xs font-mono ${
+                              isSelected
+                                ? "text-green-100"
+                                : "text-green-700 dark:text-green-400"
+                            }`}
+                          >
+                            {col.type}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-4">
+                {paramFields.map((param) => (
+                  <label
+                    key={param.name}
+                    className="flex flex-col gap-2 text-sm"
+                  >
+                    <span className="font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
+                      <span>
+                        {param.label}
+                        {param.required && (
+                          <span className="ml-1 text-orange-500">*</span>
+                        )}
+                      </span>
+                      {/* Generic tooltip for any parameter */}
+                      {param.tooltip && (
+                        <ParamTooltip content={param.tooltip} />
+                      )}
+                      {/* Join Type tooltip */}
+                      {renderedNode?.operation.id === "join" &&
+                        param.name === "type" && (
+                          <ParamTooltip
+                            content={
+                              <div className="space-y-2 text-xs">
+                                <div>
+                                  <span className="font-semibold text-gray-900 dark:text-white">
+                                    INNER:
+                                  </span>
+                                  <span className="text-gray-600 dark:text-gray-400">
+                                    {" "}
+                                    Returns only rows that match in both tables
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="font-semibold text-gray-900 dark:text-white">
+                                    LEFT:
+                                  </span>
+                                  <span className="text-gray-600 dark:text-gray-400">
+                                    {" "}
+                                    Returns all rows from left table + matches
+                                    from right
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="font-semibold text-gray-900 dark:text-white">
+                                    RIGHT:
+                                  </span>
+                                  <span className="text-gray-600 dark:text-gray-400">
+                                    {" "}
+                                    Returns all rows from right table + matches
+                                    from left
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="font-semibold text-gray-900 dark:text-white">
+                                    FULL:
+                                  </span>
+                                  <span className="text-gray-600 dark:text-gray-400">
+                                    {" "}
+                                    Returns all rows from both tables
+                                  </span>
+                                </div>
+                              </div>
+                            }
+                          />
+                        )}
+
+                      {/* Materialization tooltip */}
+                      {renderedNode?.operation.id === "dbt-model" &&
+                        param.name === "materialized" && (
+                          <ParamTooltip
+                            content={
+                              <div className="space-y-2 text-xs">
+                                <div>
+                                  <span className="font-semibold">View:</span>
+                                  <span className="text-gray-600 dark:text-gray-400">
+                                    {" "}
+                                    Virtual table, computed on every query. Good
+                                    for lightweight transformations.
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="font-semibold">Table:</span>
+                                  <span className="text-gray-600 dark:text-gray-400">
+                                    {" "}
+                                    Physical table, recomputed entirely on each
+                                    run. Good for heavy transformations.
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="font-semibold">
+                                    Incremental:
+                                  </span>
+                                  <span className="text-gray-600 dark:text-gray-400">
+                                    {" "}
+                                    Only computes new/changed rows. Best for
+                                    very large datasets.
+                                  </span>
+                                </div>
+                              </div>
+                            }
+                          />
+                        )}
+
+                      {/* Sort Direction tooltip */}
+                      {renderedNode?.operation.id === "sort" &&
+                        param.name === "direction" && (
+                          <ParamTooltip
+                            content={
+                              <div className="space-y-2 text-xs">
+                                <div>
+                                  <span className="font-semibold text-gray-900 dark:text-white">
+                                    ASC:
+                                  </span>
+                                  <span className="text-gray-600 dark:text-gray-400">
+                                    {" "}
+                                    Ascending order (A to Z, 0 to 9).
+                                  </span>
+                                </div>
+                                <div>
+                                  <span className="font-semibold text-gray-900 dark:text-white">
+                                    DESC:
+                                  </span>
+                                  <span className="text-gray-600 dark:text-gray-400">
+                                    {" "}
+                                    Descending order (Z to A, 9 to 0).
+                                  </span>
+                                </div>
+                              </div>
+                            }
+                          />
+                        )}
+
+                      {/* Group By Aggregations tooltip */}
+                      {renderedNode?.operation.id === "group-by" &&
+                        param.name === "aggregations" && (
+                          <ParamTooltip
+                            content={
+                              <div className="space-y-2 text-xs">
+                                <p className="text-gray-600 dark:text-gray-400">
+                                  Enter SQL aggregation functions separated by
+                                  commas.
+                                </p>
+                                <div>
+                                  <span className="font-semibold text-gray-900 dark:text-white">
+                                    Examples:
+                                  </span>
+                                  <ul className="list-disc list-inside text-gray-600 dark:text-gray-400 mt-1">
+                                    <li>count(*)</li>
+                                    <li>sum(price)</li>
+                                    <li>avg(amount) as avg_amount</li>
+                                    <li>max(created_at)</li>
+                                  </ul>
+                                </div>
+                              </div>
+                            }
+                          />
+                        )}
+                    </span>
+                    {param.type === "column-definition" ? (
+                      <div className="space-y-3">
+                        {(
+                          (formValues[param.name] as Array<{
+                            name: string;
+                            type: string;
+                          }>) || []
+                        ).map((column, index) => (
+                          <div
+                            key={index}
+                            className="flex gap-2 items-start p-3 rounded-lg bg-gray-100 dark:bg-gray-800"
+                          >
+                            <div className="flex-1 space-y-2">
+                              <input
+                                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+                                type="text"
+                                placeholder="Column name"
+                                value={column.name}
+                                onChange={(event) => {
+                                  const newColumns = [
+                                    ...(formValues[param.name] as Array<{
+                                      name: string;
+                                      type: string;
+                                    }>),
+                                  ];
+                                  newColumns[index] = {
+                                    ...newColumns[index],
+                                    name: event.target.value,
+                                  };
+                                  handleChange(param, newColumns);
+                                }}
+                              />
+                              <select
+                                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+                                value={column.type}
+                                onChange={(event) => {
+                                  const newColumns = [
+                                    ...(formValues[param.name] as Array<{
+                                      name: string;
+                                      type: string;
+                                    }>),
+                                  ];
+                                  newColumns[index] = {
+                                    ...newColumns[index],
+                                    type: event.target.value,
+                                  };
+                                  handleChange(param, newColumns);
+                                }}
+                              >
+                                <option value="VARCHAR">VARCHAR</option>
+                                <option value="INTEGER">INTEGER</option>
+                                <option value="FLOAT">FLOAT</option>
+                                <option value="BOOLEAN">BOOLEAN</option>
+                                <option value="DATE">DATE</option>
+                                <option value="TIMESTAMP">TIMESTAMP</option>
+                              </select>
+                            </div>
+                            <button
+                              type="button"
+                              className="mt-1 p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+                              onClick={() => {
+                                const newColumns = (
+                                  formValues[param.name] as Array<{
+                                    name: string;
+                                    type: string;
+                                  }>
+                                ).filter((_, i) => i !== index);
+                                handleChange(param, newColumns);
+                              }}
+                            >
+                              <svg
+                                className="w-5 h-5"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  strokeWidth={2}
+                                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                />
+                              </svg>
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          type="button"
+                          className="w-full rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:border-orange-400 hover:text-orange-600 dark:hover:text-orange-400 transition-all"
+                          onClick={() => {
+                            const currentColumns =
+                              (formValues[param.name] as Array<{
+                                name: string;
+                                type: string;
+                              }>) || [];
+                            handleChange(param, [
+                              ...currentColumns,
+                              { name: "", type: "VARCHAR" },
+                            ]);
+                          }}
+                        >
+                          + Add Column
+                        </button>
+                      </div>
+                    ) : param.type === "column-rename" ? (
+                      <div className="space-y-2">
+                        {(() => {
+                          const currentColumns =
+                            (formValues[param.name] as Array<{
                               original: string;
                               alias?: string;
                             }>) || [];
 
-                          const exists = currentValue.some(
-                            (item) => item.original === col.name
+                          // Filter out columns that no longer exist in availableColumns
+                          const validColumns = currentColumns.filter((col) =>
+                            availableColumns.some(
+                              (availCol) => availCol.name === col.original
+                            )
                           );
 
-                          let newValue;
-                          if (exists) {
-                            // Remove column
-                            newValue = currentValue.filter(
-                              (item) => item.original !== col.name
+                          // Auto-cleanup invalid columns
+                          const hasInvalidColumns =
+                            validColumns.length !== currentColumns.length;
+                          if (hasInvalidColumns) {
+                            // Update the form values to remove invalid columns
+                            setTimeout(
+                              () => handleChange(param, validColumns),
+                              0
                             );
-                          } else {
-                            // Add column with empty alias
-                            newValue = [
-                              ...currentValue,
-                              { original: col.name, alias: "" },
-                            ];
                           }
 
-                          handleChange(targetParam, newValue);
-                        } else if (targetParam.type === "join-condition") {
-                          // For join, update the active column (left or right)
-                          const currentJoin = (formValues[targetParam.name] as {
-                            leftColumn: string;
-                            operator: string;
-                            rightColumn: string;
-                          }) || {
-                            leftColumn: "",
-                            operator: "=",
-                            rightColumn: "",
-                          };
-
-                          // Prevent selecting the same column in both fields
-                          const otherColumn =
-                            joinColumnTarget === "left"
-                              ? currentJoin.rightColumn
-                              : currentJoin.leftColumn;
-
-                          if (col.name === otherColumn) {
-                            // Don't allow selecting the same column
-                            return;
-                          }
-
-                          handleChange(targetParam, {
-                            ...currentJoin,
-                            [joinColumnTarget === "left"
-                              ? "leftColumn"
-                              : "rightColumn"]: col.name,
-                          });
-                        } else if (targetParam.type === "column-list") {
-                          // Multi selection: toggle
-                          const currentValue =
-                            (formValues[targetParam.name] as string) || "";
-                          const currentColumns = currentValue
-                            .split(",")
-                            .map((c) => c.trim())
-                            .filter(Boolean);
-
-                          let newColumns: string[];
-                          if (currentColumns.includes(col.name)) {
-                            // Remove column
-                            newColumns = currentColumns.filter(
-                              (c) => c !== col.name
-                            );
-                          } else {
-                            // Add column
-                            newColumns = [...currentColumns, col.name];
-                          }
-
-                          handleChange(targetParam, newColumns.join(", "));
-                        }
-                      }}
-                    >
-                      <span
-                        className={`text-xs font-medium ${
-                          isSelected
-                            ? "text-white"
-                            : "text-gray-900 dark:text-white"
-                        }`}
-                      >
-                        {col.name}
-                      </span>
-                      <span
-                        className={`text-xs font-mono ${
-                          isSelected
-                            ? "text-green-100"
-                            : "text-green-700 dark:text-green-400"
-                        }`}
-                      >
-                        {col.type}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          <div className="space-y-4">
-            {paramFields.map((param) => (
-              <label key={param.name} className="flex flex-col gap-2 text-sm">
-                <span className="font-semibold text-gray-700 dark:text-gray-200 flex items-center gap-2">
-                  <span>
-                    {param.label}
-                    {param.required && (
-                      <span className="ml-1 text-orange-500">*</span>
-                    )}
-                  </span>
-                  {/* Generic tooltip for any parameter */}
-                  {param.tooltip && <ParamTooltip content={param.tooltip} />}
-                  {/* Join Type tooltip */}
-                  {renderedNode?.operation.id === "join" &&
-                    param.name === "type" && (
-                      <ParamTooltip
-                        content={
-                          <div className="space-y-2 text-xs">
-                            <div>
-                              <span className="font-semibold text-gray-900 dark:text-white">
-                                INNER:
-                              </span>
-                              <span className="text-gray-600 dark:text-gray-400">
-                                {" "}
-                                Returns only rows that match in both tables
-                              </span>
-                            </div>
-                            <div>
-                              <span className="font-semibold text-gray-900 dark:text-white">
-                                LEFT:
-                              </span>
-                              <span className="text-gray-600 dark:text-gray-400">
-                                {" "}
-                                Returns all rows from left table + matches from
-                                right
-                              </span>
-                            </div>
-                            <div>
-                              <span className="font-semibold text-gray-900 dark:text-white">
-                                RIGHT:
-                              </span>
-                              <span className="text-gray-600 dark:text-gray-400">
-                                {" "}
-                                Returns all rows from right table + matches from
-                                left
-                              </span>
-                            </div>
-                            <div>
-                              <span className="font-semibold text-gray-900 dark:text-white">
-                                FULL:
-                              </span>
-                              <span className="text-gray-600 dark:text-gray-400">
-                                {" "}
-                                Returns all rows from both tables
-                              </span>
-                            </div>
-                          </div>
-                        }
-                      />
-                    )}
-
-                  {/* Materialization tooltip */}
-                  {renderedNode?.operation.id === "dbt-model" &&
-                    param.name === "materialized" && (
-                      <ParamTooltip
-                        content={
-                          <div className="space-y-2 text-xs">
-                            <div>
-                              <span className="font-semibold text-gray-900 dark:text-white">
-                                View:
-                              </span>
-                              <span className="text-gray-600 dark:text-gray-400">
-                                {" "}
-                                Virtual table, computed on every query. Good for
-                                lightweight transformations.
-                              </span>
-                            </div>
-                            <div>
-                              <span className="font-semibold text-gray-900 dark:text-white">
-                                Table:
-                              </span>
-                              <span className="text-gray-600 dark:text-gray-400">
-                                {" "}
-                                Physical table, recomputed entirely on each run.
-                                Good for heavy transformations.
-                              </span>
-                            </div>
-                            <div>
-                              <span className="font-semibold text-gray-900 dark:text-white">
-                                Incremental:
-                              </span>
-                              <span className="text-gray-600 dark:text-gray-400">
-                                {" "}
-                                Only computes new/changed rows. Best for very
-                                large datasets.
-                              </span>
-                            </div>
-                          </div>
-                        }
-                      />
-                    )}
-
-                  {/* Sort Direction tooltip */}
-                  {renderedNode?.operation.id === "sort" &&
-                    param.name === "direction" && (
-                      <ParamTooltip
-                        content={
-                          <div className="space-y-2 text-xs">
-                            <div>
-                              <span className="font-semibold text-gray-900 dark:text-white">
-                                ASC:
-                              </span>
-                              <span className="text-gray-600 dark:text-gray-400">
-                                {" "}
-                                Ascending order (A to Z, 0 to 9).
-                              </span>
-                            </div>
-                            <div>
-                              <span className="font-semibold text-gray-900 dark:text-white">
-                                DESC:
-                              </span>
-                              <span className="text-gray-600 dark:text-gray-400">
-                                {" "}
-                                Descending order (Z to A, 9 to 0).
-                              </span>
-                            </div>
-                          </div>
-                        }
-                      />
-                    )}
-
-                  {/* Group By Aggregations tooltip */}
-                  {renderedNode?.operation.id === "group-by" &&
-                    param.name === "aggregations" && (
-                      <ParamTooltip
-                        content={
-                          <div className="space-y-2 text-xs">
-                            <p className="text-gray-600 dark:text-gray-400">
-                              Enter SQL aggregation functions separated by
-                              commas.
-                            </p>
-                            <div>
-                              <span className="font-semibold text-gray-900 dark:text-white">
-                                Examples:
-                              </span>
-                              <ul className="list-disc list-inside text-gray-600 dark:text-gray-400 mt-1">
-                                <li>count(*)</li>
-                                <li>sum(price)</li>
-                                <li>avg(amount) as avg_amount</li>
-                                <li>max(created_at)</li>
-                              </ul>
-                            </div>
-                          </div>
-                        }
-                      />
-                    )}
-                </span>
-                {param.type === "column-definition" ? (
-                  <div className="space-y-3">
-                    {(
-                      (formValues[param.name] as Array<{
-                        name: string;
-                        type: string;
-                      }>) || []
-                    ).map((column, index) => (
-                      <div
-                        key={index}
-                        className="flex gap-2 items-start p-3 rounded-lg bg-gray-100 dark:bg-gray-800"
-                      >
-                        <div className="flex-1 space-y-2">
-                          <input
-                            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-                            type="text"
-                            placeholder="Column name"
-                            value={column.name}
-                            onChange={(event) => {
-                              const newColumns = [
-                                ...(formValues[param.name] as Array<{
-                                  name: string;
-                                  type: string;
-                                }>),
-                              ];
-                              newColumns[index] = {
-                                ...newColumns[index],
-                                name: event.target.value,
-                              };
-                              handleChange(param, newColumns);
-                            }}
-                          />
-                          <select
-                            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-                            value={column.type}
-                            onChange={(event) => {
-                              const newColumns = [
-                                ...(formValues[param.name] as Array<{
-                                  name: string;
-                                  type: string;
-                                }>),
-                              ];
-                              newColumns[index] = {
-                                ...newColumns[index],
-                                type: event.target.value,
-                              };
-                              handleChange(param, newColumns);
-                            }}
-                          >
-                            <option value="VARCHAR">VARCHAR</option>
-                            <option value="INTEGER">INTEGER</option>
-                            <option value="FLOAT">FLOAT</option>
-                            <option value="BOOLEAN">BOOLEAN</option>
-                            <option value="DATE">DATE</option>
-                            <option value="TIMESTAMP">TIMESTAMP</option>
-                          </select>
-                        </div>
-                        <button
-                          type="button"
-                          className="mt-1 p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
-                          onClick={() => {
-                            const newColumns = (
-                              formValues[param.name] as Array<{
-                                name: string;
-                                type: string;
-                              }>
-                            ).filter((_, i) => i !== index);
-                            handleChange(param, newColumns);
-                          }}
-                        >
-                          <svg
-                            className="w-5 h-5"
-                            fill="none"
-                            viewBox="0 0 24 24"
-                            stroke="currentColor"
-                          >
-                            <path
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                              strokeWidth={2}
-                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                            />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                    <button
-                      type="button"
-                      className="w-full rounded-xl border-2 border-dashed border-gray-300 dark:border-gray-600 px-4 py-3 text-sm text-gray-600 dark:text-gray-400 hover:border-orange-400 hover:text-orange-600 dark:hover:text-orange-400 transition-all"
-                      onClick={() => {
-                        const currentColumns =
-                          (formValues[param.name] as Array<{
-                            name: string;
-                            type: string;
-                          }>) || [];
-                        handleChange(param, [
-                          ...currentColumns,
-                          { name: "", type: "VARCHAR" },
-                        ]);
-                      }}
-                    >
-                      + Add Column
-                    </button>
-                  </div>
-                ) : param.type === "column-rename" ? (
-                  <div className="space-y-2">
-                    {(() => {
-                      const currentColumns =
-                        (formValues[param.name] as Array<{
-                          original: string;
-                          alias?: string;
-                        }>) || [];
-
-                      // Filter out columns that no longer exist in availableColumns
-                      const validColumns = currentColumns.filter((col) =>
-                        availableColumns.some(
-                          (availCol) => availCol.name === col.original
-                        )
-                      );
-
-                      // Auto-cleanup invalid columns
-                      const hasInvalidColumns =
-                        validColumns.length !== currentColumns.length;
-                      if (hasInvalidColumns) {
-                        // Update the form values to remove invalid columns
-                        setTimeout(() => handleChange(param, validColumns), 0);
-                      }
-
-                      return (
-                        <>
-                          {hasInvalidColumns && (
-                            <div className="p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-xs text-yellow-700 dark:text-yellow-400">
-                              ⚠️ Some columns were removed because they no
-                              longer exist in the source
-                            </div>
-                          )}
-                          {validColumns.map((col, index) => (
-                            <div
-                              key={index}
-                              className="flex gap-2 items-start p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
-                            >
-                              <div className="flex-1 space-y-2">
-                                <div>
-                                  <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
-                                    Column
-                                  </label>
-                                  <input
-                                    className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-                                    type="text"
-                                    value={col.original}
-                                    readOnly
-                                  />
+                          return (
+                            <>
+                              {hasInvalidColumns && (
+                                <div className="p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-xs text-yellow-700 dark:text-yellow-400">
+                                  ⚠️ Some columns were removed because they no
+                                  longer exist in the source
                                 </div>
-                                <div>
-                                  <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
-                                    Alias (optional)
-                                  </label>
-                                  <input
-                                    className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
-                                    type="text"
-                                    placeholder="Leave empty to use original name"
-                                    value={col.alias || ""}
-                                    onChange={(event) => {
-                                      const newColumns = [...validColumns];
-                                      newColumns[index] = {
-                                        ...newColumns[index],
-                                        alias: event.target.value,
-                                      };
+                              )}
+                              {validColumns.map((col, index) => (
+                                <div
+                                  key={index}
+                                  className="flex gap-2 items-start p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                                >
+                                  <div className="flex-1 space-y-2">
+                                    <div>
+                                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
+                                        Column
+                                      </label>
+                                      <input
+                                        className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+                                        type="text"
+                                        value={col.original}
+                                        readOnly
+                                      />
+                                    </div>
+                                    <div>
+                                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
+                                        Alias (optional)
+                                      </label>
+                                      <input
+                                        className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+                                        type="text"
+                                        placeholder="Leave empty to use original name"
+                                        value={col.alias || ""}
+                                        onChange={(event) => {
+                                          const newColumns = [...validColumns];
+                                          newColumns[index] = {
+                                            ...newColumns[index],
+                                            alias: event.target.value,
+                                          };
+                                          handleChange(param, newColumns);
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className="mt-1 p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+                                    onClick={() => {
+                                      const newColumns = validColumns.filter(
+                                        (_, i) => i !== index
+                                      );
                                       handleChange(param, newColumns);
                                     }}
-                                  />
+                                  >
+                                    <svg
+                                      className="w-5 h-5"
+                                      fill="none"
+                                      viewBox="0 0 24 24"
+                                      stroke="currentColor"
+                                    >
+                                      <path
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        strokeWidth={2}
+                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                                      />
+                                    </svg>
+                                  </button>
                                 </div>
-                              </div>
-                              <button
-                                type="button"
-                                className="mt-1 p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
-                                onClick={() => {
-                                  const newColumns = validColumns.filter(
-                                    (_, i) => i !== index
-                                  );
-                                  handleChange(param, newColumns);
-                                }}
-                              >
-                                <svg
-                                  className="w-5 h-5"
-                                  fill="none"
-                                  viewBox="0 0 24 24"
-                                  stroke="currentColor"
-                                >
-                                  <path
-                                    strokeLinecap="round"
-                                    strokeLinejoin="round"
-                                    strokeWidth={2}
-                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                                  />
-                                </svg>
-                              </button>
-                            </div>
-                          ))}
-                        </>
-                      );
-                    })()}
-                    {(
-                      (formValues[param.name] as Array<{
-                        original: string;
-                        alias?: string;
-                      }>) || []
-                    ).length === 0 && (
-                      <div className="text-center py-3 text-sm text-gray-500 dark:text-gray-400">
-                        Click columns above to select them
+                              ))}
+                            </>
+                          );
+                        })()}
+                        {(
+                          (formValues[param.name] as Array<{
+                            original: string;
+                            alias?: string;
+                          }>) || []
+                        ).length === 0 && (
+                          <div className="text-center py-3 text-sm text-gray-500 dark:text-gray-400">
+                            Click columns above to select them
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                ) : param.type === "filter-condition" ? (
-                  <div className="space-y-2">
-                    {/* Column display (read-only) */}
-                    <div>
-                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
-                        Column
-                      </label>
-                      <input
-                        className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
-                        type="text"
-                        placeholder="Click a column above to select"
-                        value={
-                          (
-                            formValues[param.name] as {
-                              column: string;
-                              operator: string;
-                              value: string;
+                    ) : param.type === "filter-condition" ? (
+                      <div className="space-y-2">
+                        {/* Column display (read-only) */}
+                        <div>
+                          <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
+                            Column
+                          </label>
+                          <input
+                            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
+                            type="text"
+                            placeholder="Click a column above to select"
+                            value={
+                              (
+                                formValues[param.name] as {
+                                  column: string;
+                                  operator: string;
+                                  value: string;
+                                }
+                              )?.column || ""
                             }
-                          )?.column || ""
-                        }
-                        readOnly
-                      />
-                    </div>
+                            readOnly
+                          />
+                        </div>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      {/* Operator selector */}
-                      <div>
-                        <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
-                          Operator
-                        </label>
-                        <select
-                          className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
-                          value={
-                            (
-                              formValues[param.name] as {
-                                column: string;
-                                operator: string;
-                                value: string;
+                        <div className="grid grid-cols-2 gap-2">
+                          {/* Operator selector */}
+                          <div>
+                            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
+                              Operator
+                            </label>
+                            <select
+                              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
+                              value={
+                                (
+                                  formValues[param.name] as {
+                                    column: string;
+                                    operator: string;
+                                    value: string;
+                                  }
+                                )?.operator || "="
                               }
-                            )?.operator || "="
-                          }
-                          onChange={(event) => {
-                            const currentFilter = (formValues[param.name] as {
-                              column: string;
-                              operator: string;
-                              value: string;
-                            }) || { column: "", operator: "=", value: "" };
-                            handleChange(param, {
-                              ...currentFilter,
-                              operator: event.target.value,
-                            });
-                          }}
-                        >
-                          <option value="=">=</option>
-                          <option value="!=">!=</option>
-                          <option value="<">&lt;</option>
-                          <option value=">">&gt;</option>
-                          <option value="<=">&lt;=</option>
-                          <option value=">=">&gt;=</option>
-                          <option value="LIKE">LIKE</option>
-                          <option value="NOT LIKE">NOT LIKE</option>
-                          <option value="IN">IN</option>
-                          <option value="NOT IN">NOT IN</option>
-                          <option value="IS NULL">IS NULL</option>
-                          <option value="IS NOT NULL">IS NOT NULL</option>
-                          <option value="BETWEEN">BETWEEN</option>
-                        </select>
+                              onChange={(event) => {
+                                const currentFilter = (formValues[
+                                  param.name
+                                ] as {
+                                  column: string;
+                                  operator: string;
+                                  value: string;
+                                }) || { column: "", operator: "=", value: "" };
+                                handleChange(param, {
+                                  ...currentFilter,
+                                  operator: event.target.value,
+                                });
+                              }}
+                            >
+                              <option value="=">=</option>
+                              <option value="!=">!=</option>
+                              <option value="<">&lt;</option>
+                              <option value=">">&gt;</option>
+                              <option value="<=">&lt;=</option>
+                              <option value=">=">&gt;=</option>
+                              <option value="LIKE">LIKE</option>
+                              <option value="NOT LIKE">NOT LIKE</option>
+                              <option value="IN">IN</option>
+                              <option value="NOT IN">NOT IN</option>
+                              <option value="IS NULL">IS NULL</option>
+                              <option value="IS NOT NULL">IS NOT NULL</option>
+                              <option value="BETWEEN">BETWEEN</option>
+                            </select>
+                          </div>
+
+                          {/* Value input */}
+                          <div>
+                            <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
+                              Value
+                            </label>
+                            <input
+                              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
+                              type="text"
+                              placeholder="Enter value"
+                              value={
+                                (
+                                  formValues[param.name] as {
+                                    column: string;
+                                    operator: string;
+                                    value: string;
+                                  }
+                                )?.value || ""
+                              }
+                              onChange={(event) => {
+                                const currentFilter = (formValues[
+                                  param.name
+                                ] as {
+                                  column: string;
+                                  operator: string;
+                                  value: string;
+                                }) || { column: "", operator: "=", value: "" };
+                                handleChange(param, {
+                                  ...currentFilter,
+                                  value: event.target.value,
+                                });
+                              }}
+                              disabled={
+                                (
+                                  formValues[param.name] as {
+                                    column: string;
+                                    operator: string;
+                                    value: string;
+                                  }
+                                )?.operator === "IS NULL" ||
+                                (
+                                  formValues[param.name] as {
+                                    column: string;
+                                    operator: string;
+                                    value: string;
+                                  }
+                                )?.operator === "IS NOT NULL"
+                              }
+                            />
+                          </div>
+                        </div>
                       </div>
-
-                      {/* Value input */}
-                      <div>
-                        <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
-                          Value
-                        </label>
-                        <input
-                          className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
-                          type="text"
-                          placeholder="Enter value"
+                    ) : param.type === "filter-builder" ? (
+                      <div className="space-y-2">
+                        <FilterBuilder
                           value={
-                            (
-                              formValues[param.name] as {
-                                column: string;
-                                operator: string;
-                                value: string;
-                              }
-                            )?.value || ""
+                            (formValues[param.name] as FilterGroup) || {
+                              id: "root",
+                              type: "group",
+                              operators: [],
+                              children: [
+                                {
+                                  id: "node-default-0",
+                                  type: "condition",
+                                  column: "",
+                                  operator: "",
+                                  value: "",
+                                },
+                              ],
+                            }
                           }
-                          onChange={(event) => {
-                            const currentFilter = (formValues[param.name] as {
-                              column: string;
-                              operator: string;
-                              value: string;
-                            }) || { column: "", operator: "=", value: "" };
-                            handleChange(param, {
-                              ...currentFilter,
-                              value: event.target.value,
-                            });
-                          }}
-                          disabled={
-                            (
-                              formValues[param.name] as {
-                                column: string;
-                                operator: string;
-                                value: string;
-                              }
-                            )?.operator === "IS NULL" ||
-                            (
-                              formValues[param.name] as {
-                                column: string;
-                                operator: string;
-                                value: string;
-                              }
-                            )?.operator === "IS NOT NULL"
+                          onChange={(newFilter) =>
+                            handleChange(param, newFilter)
                           }
+                          availableColumns={availableColumns}
                         />
                       </div>
-                    </div>
-                  </div>
-                ) : param.type === "join-condition" ? (
-                  <div className="space-y-2">
-                    {/* Column selection - click on field to select it */}
-                    <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
-                      <div className="text-xs text-blue-700 dark:text-blue-400 mb-2 font-medium">
-                        Click on a field below to select it, then click a column
-                        above:
-                      </div>
+                    ) : param.type === "join-condition" ? (
                       <div className="space-y-2">
-                        {/* First Column */}
-                        <div>
-                          <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
-                            First Column
+                        {/* Column selection - click on field to select it */}
+                        <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                          <div className="text-xs text-blue-700 dark:text-blue-400 mb-2 font-medium">
+                            Click on a field below to select it, then click a
+                            column above:
                           </div>
-                          <input
-                            className={`w-full rounded-lg border-2 px-3 py-2 text-sm cursor-pointer transition-colors ${
-                              joinColumnTarget === "left"
-                                ? "border-orange-500 bg-orange-50 dark:bg-orange-900/20"
-                                : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 hover:border-orange-300"
-                            }`}
-                            type="text"
-                            placeholder="Click here, then select a column above"
-                            value={
-                              (
-                                formValues[param.name] as {
-                                  leftColumn: string;
-                                  operator: string;
-                                  rightColumn: string;
+                          <div className="space-y-2">
+                            {/* First Column */}
+                            <div>
+                              <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                                First Column
+                              </div>
+                              <input
+                                className={`w-full rounded-lg border-2 px-3 py-2 text-sm cursor-pointer transition-colors ${
+                                  joinColumnTarget === "left"
+                                    ? "border-orange-500 bg-orange-50 dark:bg-orange-900/20"
+                                    : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 hover:border-orange-300"
+                                }`}
+                                type="text"
+                                placeholder="Click here, then select a column above"
+                                value={
+                                  (
+                                    formValues[param.name] as {
+                                      leftColumn: string;
+                                      operator: string;
+                                      rightColumn: string;
+                                    }
+                                  )?.leftColumn || ""
                                 }
-                              )?.leftColumn || ""
-                            }
-                            onClick={() => setJoinColumnTarget("left")}
-                            readOnly
-                          />
+                                onClick={() => setJoinColumnTarget("left")}
+                                readOnly
+                              />
+                            </div>
+
+                            {/* Second Column */}
+                            <div>
+                              <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                                Second Column
+                              </div>
+                              <input
+                                className={`w-full rounded-lg border-2 px-3 py-2 text-sm cursor-pointer transition-colors ${
+                                  joinColumnTarget === "right"
+                                    ? "border-orange-500 bg-orange-50 dark:bg-orange-900/20"
+                                    : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 hover:border-orange-300"
+                                }`}
+                                type="text"
+                                placeholder="Click here, then select a column above"
+                                value={
+                                  (
+                                    formValues[param.name] as {
+                                      leftColumn: string;
+                                      operator: string;
+                                      rightColumn: string;
+                                    }
+                                  )?.rightColumn || ""
+                                }
+                                onClick={() => setJoinColumnTarget("right")}
+                                readOnly
+                              />
+                            </div>
+                          </div>
                         </div>
 
-                        {/* Second Column */}
+                        {/* Operator selector */}
                         <div>
-                          <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
-                            Second Column
-                          </div>
-                          <input
-                            className={`w-full rounded-lg border-2 px-3 py-2 text-sm cursor-pointer transition-colors ${
-                              joinColumnTarget === "right"
-                                ? "border-orange-500 bg-orange-50 dark:bg-orange-900/20"
-                                : "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 hover:border-orange-300"
-                            }`}
-                            type="text"
-                            placeholder="Click here, then select a column above"
+                          <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
+                            Operator
+                          </label>
+                          <select
+                            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
                             value={
                               (
                                 formValues[param.name] as {
@@ -1166,126 +1320,107 @@ function Inspector({
                                   operator: string;
                                   rightColumn: string;
                                 }
-                              )?.rightColumn || ""
+                              )?.operator || "="
                             }
-                            onClick={() => setJoinColumnTarget("right")}
-                            readOnly
-                          />
+                            onChange={(event) => {
+                              const currentJoin = (formValues[param.name] as {
+                                leftColumn: string;
+                                operator: string;
+                                rightColumn: string;
+                              }) || {
+                                leftColumn: "",
+                                operator: "=",
+                                rightColumn: "",
+                              };
+                              handleChange(param, {
+                                ...currentJoin,
+                                operator: event.target.value,
+                              });
+                            }}
+                          >
+                            <option value="=">=</option>
+                            <option value="!=">!=</option>
+                            <option value="<">&lt;</option>
+                            <option value=">">&gt;</option>
+                            <option value="<=">&lt;=</option>
+                            <option value=">=">&gt;=</option>
+                          </select>
                         </div>
                       </div>
-                    </div>
-
-                    {/* Operator selector */}
-                    <div>
-                      <label className="text-xs text-gray-600 dark:text-gray-400 mb-1 block">
-                        Operator
-                      </label>
-                      <select
-                        className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
-                        value={
-                          (
-                            formValues[param.name] as {
-                              leftColumn: string;
-                              operator: string;
-                              rightColumn: string;
-                            }
-                          )?.operator || "="
+                    ) : param.type === "column-select" ? (
+                      <input
+                        className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 w-full"
+                        type="text"
+                        placeholder={
+                          availableColumns.length === 0
+                            ? "No columns available (connect a parent node)"
+                            : "Click a column above to select"
                         }
-                        onChange={(event) => {
-                          const currentJoin = (formValues[param.name] as {
-                            leftColumn: string;
-                            operator: string;
-                            rightColumn: string;
-                          }) || {
-                            leftColumn: "",
-                            operator: "=",
-                            rightColumn: "",
-                          };
-                          handleChange(param, {
-                            ...currentJoin,
-                            operator: event.target.value,
-                          });
-                        }}
+                        value={(formValues[param.name] as string) ?? ""}
+                        readOnly
+                      />
+                    ) : param.type === "select" ? (
+                      <select
+                        className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2"
+                        value={(formValues[param.name] as string) ?? ""}
+                        onChange={(event) =>
+                          handleChange(param, event.target.value)
+                        }
                       >
-                        <option value="=">=</option>
-                        <option value="!=">!=</option>
-                        <option value="<">&lt;</option>
-                        <option value=">">&gt;</option>
-                        <option value="<=">&lt;=</option>
-                        <option value=">=">&gt;=</option>
+                        {param.options?.map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
                       </select>
-                    </div>
-                  </div>
-                ) : param.type === "column-select" ? (
-                  <input
-                    className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 w-full"
-                    type="text"
-                    placeholder={
-                      availableColumns.length === 0
-                        ? "No columns available (connect a parent node)"
-                        : "Click a column above to select"
-                    }
-                    value={(formValues[param.name] as string) ?? ""}
-                    readOnly
-                  />
-                ) : param.type === "select" ? (
-                  <select
-                    className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2"
-                    value={(formValues[param.name] as string) ?? ""}
-                    onChange={(event) =>
-                      handleChange(param, event.target.value)
-                    }
-                  >
-                    {param.options?.map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
-                ) : param.type === "boolean" ? (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={Boolean(formValues[param.name])}
-                      onChange={(event) =>
-                        handleChange(param, event.target.checked)
-                      }
-                    />
-                    <span className="text-gray-500">Activer</span>
-                  </div>
-                ) : (
-                  <input
-                    className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2"
-                    type={param.type === "number" ? "number" : "text"}
-                    placeholder={
-                      param.type === "column-list"
-                        ? "Click columns above to select"
-                        : param.label
-                    }
-                    value={(formValues[param.name] as string) ?? ""}
-                    onChange={(event) =>
-                      handleChange(param, event.target.value)
-                    }
-                    readOnly={
-                      param.type === "column-list" ||
-                      param.type === "column-select"
-                    }
-                  />
-                )}
-              </label>
-            ))}
+                    ) : param.type === "boolean" ? (
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(formValues[param.name])}
+                          onChange={(event) =>
+                            handleChange(param, event.target.checked)
+                          }
+                        />
+                        <span className="text-gray-500">Activer</span>
+                      </div>
+                    ) : (
+                      <input
+                        className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2"
+                        type={param.type === "number" ? "number" : "text"}
+                        placeholder={
+                          param.type === "column-list"
+                            ? "Click columns above to select"
+                            : param.label
+                        }
+                        value={(formValues[param.name] as string) ?? ""}
+                        onChange={(event) =>
+                          handleChange(param, event.target.value)
+                        }
+                        readOnly={param.type === "column-list"}
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+            </div>
           </div>
-
-          <div className="flex flex-col gap-2">
+          <div className="shrink-0 py-2 border-t border-gray-200 dark:border-gray-700 flex flex-row-reverse gap-2">
             <button
-              className="rounded-full bg-orange-600 hover:bg-orange-400 px-4 py-2 text-white font-semibold hover:shadow-lg shadow-orange-400/30 transition-all"
+              className="rounded-full hover:border-transparent bg-orange-600 hover:bg-orange-400 px-4 py-1 text-gray-200 font-semibold shadow-md dark:shadow-black/20 hover:shadow-lg hover:shadow-orange-400/30 transition-all w-20"
               type="button"
               onClick={handleSave}
             >
-              Save config
+              Save
+            </button>
+            <button
+              className="rounded-full bg-gray-200 dark:bg-gray-700 text-red-600 dark:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 px-4 py-1 font-semibold shadow-md transition-all border-none"
+              onClick={() => renderedNode && onDelete(renderedNode.id)}
+            >
+              Delete
             </button>
           </div>
-        </div>
+        </>
       )}
     </div>
   );

@@ -18,6 +18,7 @@ export interface OperationParam {
     | "table"
     | "column-definition"
     | "filter-condition"
+    | "filter-builder"
     | "join-condition";
   required?: boolean;
   options?: string[];
@@ -114,7 +115,7 @@ export const OPERATION_DEFS: OperationDefinition[] = [
       {
         name: "condition",
         label: "Filter Condition",
-        type: "filter-condition",
+        type: "filter-builder",
         required: true,
       },
     ],

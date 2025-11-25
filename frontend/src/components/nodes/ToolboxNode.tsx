@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { OperationDefinition } from "../../domain/operations";
 import { getOperationIcon } from "../icons";
 
@@ -6,13 +7,13 @@ interface ToolboxNodeProps {
   onAddNode: (operation: OperationDefinition) => void;
 }
 
-export default function ToolboxNode({
+const ToolboxNode = memo(function ToolboxNode({
   operation,
   onAddNode,
 }: ToolboxNodeProps) {
   return (
     <div
-      className="relative node group w-full cursor-pointer transition-all hover:bg-gray-200 dark:hover:bg-gray-700"
+      className="relative node group w-full h-full cursor-pointer"
       onClick={() => onAddNode(operation)}
     >
       {/* Overlay */}
@@ -37,7 +38,7 @@ export default function ToolboxNode({
             cx="12"
             cy="12"
             r="10" // Cercle reste le même
-            className="fill-gray-200 dark:fill-gray-700 opacity-80"
+            className="fill-white dark:fill-gray-700 opacity-60"
             filter="url(#blur-filter)"
           />
 
@@ -46,7 +47,7 @@ export default function ToolboxNode({
             y1="6"
             x2="12"
             y2="18"
-            stroke="#ea580c"
+            className="stroke-gray-400 dark:stroke-gray-200"
             strokeWidth="2"
           />
           <line
@@ -54,7 +55,7 @@ export default function ToolboxNode({
             y1="12"
             x2="18"
             y2="12"
-            stroke="#ea580c"
+            className="stroke-gray-400 dark:stroke-gray-200"
             strokeWidth="2"
           />
         </svg>
@@ -63,13 +64,11 @@ export default function ToolboxNode({
       {/* Content */}
       <div className="flex flex-col items-start relative z-10">
         <div className="flex items-center">
-          <div className="rounded-full w-10 h-10 flex justify-center items-center bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300">
-            {getOperationIcon(operation.id, "w-5 h-5")}
+          <div className="rounded-full w-10 h-10 flex justify-center items-center backdrop-blur-md border border-gray-300 dark:border-gray-600 bg-gray-200/50 dark:bg-gray-600/50 shadow-md dark:shadow-black/20 text-gray-600 dark:text-gray-300">
+            {getOperationIcon(operation.id, "w-5 h-5 text-orange-600")}
           </div>
           <div className="ml-3">
-            <div className="text-sm font-bold text-gray-900 dark:text-gray-100">
-              {operation.label}
-            </div>
+            <div className="text-sm font-bold">{operation.label}</div>
             <div className="text-xs text-gray-500 dark:text-gray-400">
               {operation.category.toUpperCase()}
             </div>
@@ -81,4 +80,6 @@ export default function ToolboxNode({
       </div>
     </div>
   );
-}
+});
+
+export default ToolboxNode;

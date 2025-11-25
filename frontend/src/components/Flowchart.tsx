@@ -14,6 +14,7 @@ import {
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import type { OperationDefinition } from "../domain/operations";
 import OperationNode from "./nodes/OperationNode";
+import { AnimatedEdge } from "./AnimatedEdge";
 
 type OperationNodeData = {
   operation: OperationDefinition;
@@ -34,6 +35,7 @@ interface FlowchartProps {
       params?: Record<string, unknown>;
     } | null
   ) => void;
+  selectedNodeId?: string | null;
 }
 
 function Flowchart({
@@ -42,6 +44,7 @@ function Flowchart({
   setNodes,
   setEdges,
   onSelectNode,
+  selectedNodeId,
 }: FlowchartProps) {
   const nodeTypes = { operation: OperationNode };
 
@@ -75,7 +78,8 @@ function Flowchart({
   );
 
   const onConnect = useCallback(
-    (params: Connection) => setEdges((prev) => addEdge(params, prev)),
+    (params: Connection) =>
+      setEdges((prev) => addEdge({ ...params, type: "animated" }, prev)),
     [setEdges]
   );
 
@@ -88,6 +92,7 @@ function Flowchart({
           ...node.data,
           onRemove: handleRemoveNode,
           onConfigure: handleConfigureNode,
+          isSelected: node.id === selectedNodeId,
         },
       };
     }
@@ -103,6 +108,8 @@ function Flowchart({
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
         nodeTypes={nodeTypes}
+        edgeTypes={{ animated: AnimatedEdge }}
+        connectionLineStyle={{ strokeWidth: 2, stroke: "var(--edge-color)" }}
         fitView
         minZoom={0.2}
         maxZoom={1.2}
@@ -111,6 +118,16 @@ function Flowchart({
         <Background />
         <Controls />
       </ReactFlow>
+
+      {/* Custom React Flow attribution */}
+      <a
+        href="https://reactflow.dev/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="fixed bottom-[1.04rem] left-1/2 -translate-x-1/2 -ml-17 px-2 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white/50 dark:bg-gray-800/50 backdrop-blur-md shadow-md dark:shadow-black/20 text-[0.7rem] hover:underline transition-colors cursor-pointer"
+      >
+        React Flow
+      </a>
     </div>
   );
 }

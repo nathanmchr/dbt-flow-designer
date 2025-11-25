@@ -60,12 +60,28 @@ function App() {
   };
 
   const handleSelectNode = (nodeData: { id: string } | null) => {
-    setSelectedNodeId(nodeData?.id ?? null);
+    if (nodeData) {
+      setSelectedNodeId(nodeData.id);
+    }
+  };
+
+  const handleCloseInspector = () => {
+    setSelectedNodeId(null);
+  };
+
+  const handleDeleteNode = (nodeId: string) => {
+    setNodes((prev) => prev.filter((n) => n.id !== nodeId));
+    setEdges((prev) =>
+      prev.filter((e) => e.source !== nodeId && e.target !== nodeId)
+    );
+    if (selectedNodeId === nodeId) {
+      setSelectedNodeId(null);
+    }
   };
 
   useEffect(() => {
     if (selectedNodeId && !nodes.find((node) => node.id === selectedNodeId)) {
-      setSelectedNodeId(null);
+      setTimeout(() => setSelectedNodeId(null), 0);
     }
   }, [nodes, selectedNodeId]);
 
@@ -91,6 +107,61 @@ function App() {
           : node
       )
     );
+  };
+
+  // Save model to JSON file
+  const handleSaveModel = () => {
+    const modelData = {
+      version: "1.0",
+      timestamp: new Date().toISOString(),
+      nodes,
+      edges,
+      nodeCounter,
+    };
+
+    const json = JSON.stringify(modelData, null, 2);
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `dbt-flow-model-${Date.now()}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Load model from JSON file
+  const handleLoadModel = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const json = e.target?.result as string;
+        const modelData = JSON.parse(json);
+
+        // Validate structure
+        if (!modelData.nodes || !modelData.edges) {
+          alert("Invalid model file format");
+          return;
+        }
+
+        // Restore state
+        setNodes(modelData.nodes);
+        setEdges(modelData.edges);
+        setNodeCounter(modelData.nodeCounter || modelData.nodes.length);
+        setSelectedNodeId(null);
+      } catch (error) {
+        console.error("Failed to load model:", error);
+        alert("Failed to load model file");
+      }
+    };
+    reader.readAsText(file);
+
+    // Reset input so the same file can be loaded again
+    event.target.value = "";
   };
 
   const inspectorNode = selectedNode
@@ -301,17 +372,37 @@ function App() {
     previousNodeColumns.current = nodeColumnsMap;
   }, [nodes, edges]);
 
+  // Ref for file input
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   return (
     <>
       <header>
         <h1>dbt Flow Designer</h1>
         <div className="flex flex-row gap-4">
-          <button className="w-30 shadow-md p-3 rounded-full">Test</button>
-          <button className="w-30 bg-orange-600 hover:bg-orange-400 hover:shadow-lg hover:shadow-orange-400/30 transition-all text-white shadow-md p-3 rounded-full">
+          <button
+            className="w-30 shadow-md p-3 rounded-full"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            Load
+          </button>
+          <button
+            className="w-30 bg-orange-600 hover:bg-orange-400 hover:border-transparent hover:shadow-lg hover:shadow-orange-400/30 transition-all text-gray-200 shadow-md p-3 rounded-full"
+            onClick={handleSaveModel}
+          >
             Save
           </button>
         </div>
       </header>
+
+      {/* Hidden file input for loading models */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept=".json"
+        onChange={handleLoadModel}
+        style={{ display: "none" }}
+      />
 
       <div className="main-content flex">
         <Toolbox onAddNode={handleAddNode} />
@@ -321,11 +412,14 @@ function App() {
           setNodes={setNodes}
           setEdges={setEdges}
           onSelectNode={handleSelectNode}
+          selectedNodeId={selectedNodeId}
         />
         <Inspector
           node={inspectorNode}
           onSave={handleSaveParams}
           onClearSelection={() => setSelectedNodeId(null)}
+          onClose={handleCloseInspector}
+          onDelete={handleDeleteNode}
           availableColumns={availableColumns}
         />
       </div>
