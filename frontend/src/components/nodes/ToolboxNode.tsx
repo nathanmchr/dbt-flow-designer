@@ -1,5 +1,5 @@
 import { memo } from "react";
-import type { OperationDefinition } from "../../domain/operations";
+import type { OperationDefinition } from "../../definitions/operations";
 import { getOperationIcon } from "../icons";
 
 interface ToolboxNodeProps {
@@ -30,7 +30,7 @@ const ToolboxNode = memo(function ToolboxNode({
               width="200%"
               height="200%"
             >
-              <feGaussianBlur stdDeviation="1.5" />
+              <feGaussianBlur stdDeviation="2.5" />
             </filter>
           </defs>
 
@@ -38,7 +38,7 @@ const ToolboxNode = memo(function ToolboxNode({
             cx="12"
             cy="12"
             r="10" // Cercle reste le même
-            className="fill-white dark:fill-gray-700 opacity-60"
+            className="fill-gray-50 dark:fill-gray-600 opacity-80"
             filter="url(#blur-filter)"
           />
 
@@ -64,7 +64,7 @@ const ToolboxNode = memo(function ToolboxNode({
       {/* Content */}
       <div className="flex flex-col items-start relative z-10">
         <div className="flex items-center">
-          <div className="rounded-full w-10 h-10 flex justify-center items-center backdrop-blur-md border border-gray-300 dark:border-gray-600 bg-gray-200/50 dark:bg-gray-600/50 shadow-md dark:shadow-black/20 text-gray-600 dark:text-gray-300">
+          <div className="node-icon w-10 h-10">
             {getOperationIcon(operation.id, "w-5 h-5 text-orange-600")}
           </div>
           <div className="ml-3">

@@ -1,6 +1,10 @@
 import { useState, useEffect, useMemo } from "react";
-import { OPERATION_DEFS, type OperationDefinition } from "../domain/operations";
+import {
+  OPERATION_DEFS,
+  type OperationDefinition,
+} from "../definitions/operations";
 import ToolboxNode from "./nodes/ToolboxNode";
+import { Tooltip } from "./Tooltip";
 
 interface ToolboxProps {
   onAddNode: (operation: OperationDefinition) => void;
@@ -113,7 +117,7 @@ function Toolbox({ onAddNode }: ToolboxProps) {
       {(!isOpen || isClosing) && (
         <button
           onClick={handleOpenToolbox}
-          className="fixed left-0 top-36.5 -translate-y-1/2 z-50 p-3 rounded-r-xl bg-white/50 dark:bg-gray-800/50 backdrop-blur-lg border border-l-0 border-gray-300 dark:border-gray-700 shadow-lg dark:shadow-black/20 hover:bg-white/70 dark:hover:bg-gray-700/50 transition-all"
+          className="fixed left-0 top-34.5 -translate-y-1/2 z-50 p-3 rounded-r-xl bg-white/50 dark:bg-gray-800/50 backdrop-blur-lg border border-l-0 border-gray-300 dark:border-gray-700 shadow-lg dark:shadow-black/20 hover:bg-white/70 dark:hover:bg-gray-700/50 transition-all"
           style={{
             animation: isClosing
               ? "slideOutToLeft 200ms ease-in both"
@@ -130,20 +134,14 @@ function Toolbox({ onAddNode }: ToolboxProps) {
               strokeLinecap="round"
               strokeLinejoin="round"
               strokeWidth={2}
-              d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"
-            />
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"
+              d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
             />
           </svg>
         </button>
       )}
 
       <div
-        className="panel fixed left-4 top-21 z-50 h-[calc(100%-115px)] flex flex-col"
+        className="panel fixed left-4 top-19 z-50 h-[calc(100%-var(--spacing)*27)] flex flex-col"
         style={{ ...panelStyle, width: `${width}px` }}
       >
         {/* Resize handle */}
@@ -154,13 +152,13 @@ function Toolbox({ onAddNode }: ToolboxProps) {
             setIsResizing(true);
           }}
         />
-        <div className="shrink-0 pb-2 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-          <p className="text-xs uppercase tracking-[0.2em] text-gray-400 font-bold">
+        <div className="shrink-0 flex justify-between items-center px-4 pt-4">
+          <p className="pb-2 border-b text-xs font-bold uppercase tracking-[0.2em] border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400">
             Toolbox
           </p>
           <button
             onClick={() => setIsOpen(false)}
-            className="text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 backdrop-blur-md rounded-full p-1 border border-gray-300 hover:border-gray-200 dark:border-gray-600 dark:hover:border-gray-500 bg-gray-300/50 dark:bg-gray-600/50 hover:bg-white/50 dark:hover:bg-gray-400/50 shadow-md hover:shadow-xl dark:hover:shadow-lg dark:shadow-black/20 hover:shadow-white dark:hover:shadow-white/10 transition-colors"
+            className="normal-button rounded-full p-1"
           >
             <svg
               className="w-4 h-4"
@@ -177,12 +175,12 @@ function Toolbox({ onAddNode }: ToolboxProps) {
             </svg>
           </button>
         </div>
-        <div className="overflow-y-auto flex-1 mask-gradient-top -mr-2 pt-4">
+        <div className="overflow-y-auto flex-1 mask-gradient-both pr-3 -mr-3 pt-4">
           {Object.entries(categories).map(([cat, ops]) => (
             <div key={cat} className="category mb-2">
               <button
                 onClick={() => toggleCategory(cat)}
-                className="w-full flex items-center justify-start gap-2 p-2 mb-2 border-transparent group sticky top-0 z-10"
+                className="w-full flex items-center justify-start group sticky top-0 z-10 gap-2 mb-4 px-4 backdrop-blur-none border-transparent bg-transparent shadow-transparent text-gray-700 dark:text-gray-200 hover:text-gray-700 dark:hover:text-gray-200"
               >
                 <svg
                   className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${
@@ -212,7 +210,7 @@ function Toolbox({ onAddNode }: ToolboxProps) {
               >
                 <div className="overflow-hidden">
                   <ul
-                    className={`grid gap-4 mb-4 transition-transform duration-300 ease-out will-change-transform transform-gpu ${
+                    className={`grid gap-4 mb-4 px-4 transition-transform duration-300 ease-out will-change-transform transform-gpu ${
                       expandedCategories[cat]
                         ? "translate-y-0"
                         : "-translate-y-full"
@@ -230,7 +228,9 @@ function Toolbox({ onAddNode }: ToolboxProps) {
                             : "opacity-0 duration-150"
                         }`}
                       >
-                        <ToolboxNode operation={op} onAddNode={onAddNode} />
+                        <Tooltip content={op.description}>
+                          <ToolboxNode operation={op} onAddNode={onAddNode} />
+                        </Tooltip>
                       </li>
                     ))}
                   </ul>

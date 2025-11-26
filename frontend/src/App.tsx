@@ -3,8 +3,12 @@ import type { Edge, Node } from "@xyflow/react";
 import Flowchart from "./components/Flowchart";
 import Inspector from "./components/Inspector";
 import Toolbox from "./components/Toolbox";
-import { OPERATION_DEFS, type OperationDefinition } from "./domain/operations";
-import { getAvailableColumns } from "./domain/columnPropagation";
+import {
+  OPERATION_DEFS,
+  type OperationDefinition,
+} from "./definitions/operations";
+import { getAvailableColumns } from "./definitions/columnPropagation";
+import { Tooltip } from "./components/Tooltip";
 
 type OperationNodeData = {
   operation: OperationDefinition;
@@ -16,6 +20,38 @@ function App() {
   const [edges, setEdges] = useState<Edge[]>([]);
   const [nodeCounter, setNodeCounter] = useState(0);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [modelName, setModelName] = useState("Untitled Model");
+  const [isEditingName, setIsEditingName] = useState(false);
+  const previousModelName = useRef("Untitled Model");
+  // Undo/Redo history management
+  type HistoryState = {
+    nodes: Node<OperationNodeData>[];
+    edges: Edge[];
+  };
+
+  const [history, setHistory] = useState<HistoryState[]>([
+    { nodes: [], edges: [] },
+  ]);
+  const [historyIndex, setHistoryIndex] = useState(0);
+  const movingNodes = useRef<Set<string>>(new Set()); // Track which nodes are being moved
+  const isRestoringHistory = useRef(false);
+
+  const [undoDescription, setUndoDescription] = useState<string>("");
+  const [redoDescription, setRedoDescription] = useState<string>("");
+
+  // Finish editing model name with validation
+  const finishEditingName = () => {
+    const trimmedName = modelName.trim();
+    if (trimmedName === "") {
+      // Restore previous name if empty
+      setModelName(previousModelName.current);
+    } else {
+      // Update previous name for next edit
+      previousModelName.current = trimmedName;
+      setModelName(trimmedName);
+    }
+    setIsEditingName(false);
+  };
 
   // Sync existing nodes with latest operation definitions (e.g. label changes)
   useEffect(() => {
@@ -40,6 +76,205 @@ function App() {
       return hasChanges ? newNodes : prevNodes;
     });
   }, []);
+
+  // Normalize nodes to only keep user-relevant properties (ignore ReactFlow metadata)
+  const normalizeNode = (node: Node<OperationNodeData>) => ({
+    id: node.id,
+    type: node.type,
+    position: node.position,
+    data: node.data,
+  });
+
+  const normalizeEdge = (edge: Edge) => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    type: edge.type,
+  });
+
+  // Generate a human-readable description of the change between two states
+  const describeChange = (
+    fromState: HistoryState,
+    toState: HistoryState
+  ): string => {
+    // Check for added nodes
+    const addedNodes = toState.nodes.filter(
+      (n) => !fromState.nodes.find((fn) => fn.id === n.id)
+    );
+    if (addedNodes.length > 0) {
+      const nodeName = addedNodes[0].data.operation.label;
+      return `Added node "${nodeName}"`;
+    }
+
+    // Check for deleted nodes
+    const deletedNodes = fromState.nodes.filter(
+      (n) => !toState.nodes.find((tn) => tn.id === n.id)
+    );
+    if (deletedNodes.length > 0) {
+      const nodeName = deletedNodes[0].data.operation.label;
+      return `Deleted node "${nodeName}"`;
+    }
+
+    // Check for added edges
+    const addedEdges = toState.edges.filter(
+      (e) => !fromState.edges.find((fe) => fe.id === e.id)
+    );
+    if (addedEdges.length > 0) {
+      const edge = addedEdges[0];
+      const sourceNode = toState.nodes.find((n) => n.id === edge.source);
+      const targetNode = toState.nodes.find((n) => n.id === edge.target);
+      if (sourceNode && targetNode) {
+        return `Connected "${sourceNode.data.operation.label}" to "${targetNode.data.operation.label}"`;
+      }
+      return "Connected nodes";
+    }
+
+    // Check for deleted edges
+    const deletedEdges = fromState.edges.filter(
+      (e) => !toState.edges.find((te) => te.id === e.id)
+    );
+    if (deletedEdges.length > 0) {
+      const edge = deletedEdges[0];
+      const sourceNode = fromState.nodes.find((n) => n.id === edge.source);
+      const targetNode = fromState.nodes.find((n) => n.id === edge.target);
+      if (sourceNode && targetNode) {
+        return `Disconnected "${sourceNode.data.operation.label}" from "${targetNode.data.operation.label}"`;
+      }
+      return "Disconnected nodes";
+    }
+
+    // Check for moved nodes (with threshold to avoid floating point issues)
+    const movedNode = toState.nodes.find((n) => {
+      const oldNode = fromState.nodes.find((fn) => fn.id === n.id);
+      if (!oldNode) return false;
+      const deltaX = Math.abs(oldNode.position.x - n.position.x);
+      const deltaY = Math.abs(oldNode.position.y - n.position.y);
+      return deltaX > 1 || deltaY > 1; // Threshold of 1px to avoid floating point issues
+    });
+    if (movedNode) {
+      return `Moved node "${movedNode.data.operation.label}"`;
+    }
+
+    // Check for changed node params
+    const changedNode = toState.nodes.find((n) => {
+      const oldNode = fromState.nodes.find((fn) => fn.id === n.id);
+      return (
+        oldNode &&
+        JSON.stringify(oldNode.data.params) !== JSON.stringify(n.data.params)
+      );
+    });
+    if (changedNode) {
+      return `Modified node "${changedNode.data.operation.label}"`;
+    }
+
+    return "Unknown change";
+  };
+
+  // Save state to history when nodes/edges change (but not during drag or history restoration)
+  useEffect(() => {
+    if (movingNodes.current.size > 0 || isRestoringHistory.current) {
+      return;
+    }
+
+    const currentState = { nodes, edges };
+    const currentHistoryState = history[historyIndex];
+
+    // Normalize states before comparison to ignore ReactFlow metadata
+    const normalizedCurrentNodes = currentState.nodes.map(normalizeNode);
+    const normalizedCurrentEdges = currentState.edges.map(normalizeEdge);
+    const normalizedHistoryNodes =
+      currentHistoryState?.nodes.map(normalizeNode) || [];
+    const normalizedHistoryEdges =
+      currentHistoryState?.edges.map(normalizeEdge) || [];
+
+    // Only save if state actually changed
+    if (
+      JSON.stringify(normalizedCurrentNodes) !==
+        JSON.stringify(normalizedHistoryNodes) ||
+      JSON.stringify(normalizedCurrentEdges) !==
+        JSON.stringify(normalizedHistoryEdges)
+    ) {
+      // Remove any history after current index (when making changes after undo)
+      const newHistory = history.slice(0, historyIndex + 1);
+      newHistory.push(currentState);
+
+      // Limit history size to 50 states
+      if (newHistory.length > 50) {
+        newHistory.shift();
+      } else {
+        setHistoryIndex(newHistory.length - 1);
+      }
+
+      setHistory(newHistory);
+    }
+  }, [nodes, edges]);
+
+  // Update undo/redo descriptions when history changes
+  useEffect(() => {
+    if (historyIndex > 0) {
+      const currentState = history[historyIndex];
+      const previousState = history[historyIndex - 1];
+      const description = describeChange(previousState, currentState);
+      setUndoDescription(description);
+    } else {
+      setUndoDescription("");
+    }
+
+    if (historyIndex < history.length - 1) {
+      const currentState = history[historyIndex];
+      const nextState = history[historyIndex + 1];
+      const description = describeChange(currentState, nextState);
+      setRedoDescription(description);
+    } else {
+      setRedoDescription("");
+    }
+  }, [history, historyIndex]);
+
+  // Undo function
+  const undo = () => {
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      const restoredState = history[newIndex];
+      isRestoringHistory.current = true;
+      setNodes(restoredState.nodes);
+      setEdges(restoredState.edges);
+      setHistoryIndex(newIndex);
+      setTimeout(() => {
+        isRestoringHistory.current = false;
+      }, 0);
+    }
+  };
+
+  // Redo function
+  const redo = () => {
+    if (historyIndex < history.length - 1) {
+      const newIndex = historyIndex + 1;
+      const restoredState = history[newIndex];
+      isRestoringHistory.current = true;
+      setNodes(restoredState.nodes);
+      setEdges(restoredState.edges);
+      setHistoryIndex(newIndex);
+      setTimeout(() => {
+        isRestoringHistory.current = false;
+      }, 0);
+    }
+  };
+
+  // Keyboard shortcuts for undo/redo
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "z") {
+        e.preventDefault();
+        redo();
+      } else if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+        e.preventDefault();
+        undo();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [historyIndex, history]);
 
   const handleAddNode = (operation: OperationDefinition) => {
     const newId = `node-${nodeCounter}`;
@@ -114,6 +349,7 @@ function App() {
     const modelData = {
       version: "1.0",
       timestamp: new Date().toISOString(),
+      modelName,
       nodes,
       edges,
       nodeCounter,
@@ -124,7 +360,9 @@ function App() {
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = `dbt-flow-model-${Date.now()}.json`;
+    // Use model name for filename (sanitized)
+    const sanitizedName = modelName.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+    link.download = `${sanitizedName || "untitled"}.json`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -152,7 +390,17 @@ function App() {
         setNodes(modelData.nodes);
         setEdges(modelData.edges);
         setNodeCounter(modelData.nodeCounter || modelData.nodes.length);
+        setModelName(modelData.modelName || file.name.replace(".json", ""));
         setSelectedNodeId(null);
+
+        // Reset history with the loaded state as initial state
+        setHistory([
+          {
+            nodes: modelData.nodes,
+            edges: modelData.edges,
+          },
+        ]);
+        setHistoryIndex(0);
       } catch (error) {
         console.error("Failed to load model:", error);
         alert("Failed to load model file");
@@ -377,17 +625,113 @@ function App() {
 
   return (
     <>
-      <header>
-        <h1>dbt Flow Designer</h1>
+      <header className="">
+        <h1 className="border-r border-gray-300 dark:border-gray-700 pr-4 shrink-0">
+          dbt Flow Designer
+        </h1>
+
+        <div className="flex flex-1 min-w-0">
+          {isEditingName ? (
+            <input
+              type="text"
+              value={modelName}
+              onChange={(e) => setModelName(e.target.value)}
+              onBlur={finishEditingName}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  finishEditingName();
+                }
+              }}
+              autoFocus
+              className="text-xl font-semibold bg-transparent outline-none border-none w-full cursor-text"
+            />
+          ) : (
+            <Tooltip content={modelName}>
+              <h2
+                className="text-xl font-semibold whitespace-nowrap overflow-hidden text-ellipsis flex-1"
+                onClick={() => {
+                  previousModelName.current = modelName;
+                  setIsEditingName(true);
+                }}
+              >
+                {modelName}
+              </h2>
+            </Tooltip>
+          )}
+        </div>
+
+        {/* Undo/Redo buttons */}
+        <div className="flex flex-row gap-3 border-l border-r border-gray-300 dark:border-gray-700 px-4">
+          <Tooltip
+            content={
+              <>
+                {undoDescription ? `Undo: ${undoDescription}` : "Undo"}{" "}
+                <span className="opacity-30 ml-1 text-gray-600 dark:text-gray-400">
+                  (Ctrl+Z)
+                </span>
+              </>
+            }
+          >
+            <button
+              className="normal-button p-2 rounded-full disabled:opacity-30 disabled:cursor-not-allowed"
+              onClick={undo}
+              disabled={historyIndex === 0}
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6"
+                />
+              </svg>
+            </button>
+          </Tooltip>
+
+          <Tooltip
+            content={
+              <>
+                {redoDescription ? `Redo: ${redoDescription}` : "Redo"}{" "}
+                <span className="opacity-30 ml-1 ">(Ctrl+Shift+Z)</span>
+              </>
+            }
+          >
+            <button
+              className="normal-button p-2 rounded-full disabled:opacity-30 disabled:cursor-not-allowed"
+              onClick={redo}
+              disabled={historyIndex >= history.length - 1}
+            >
+              <svg
+                className="w-5 h-5"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M21 10H11a8 8 0 00-8 8v2M21 10l-6 6m6-6l-6-6"
+                />
+              </svg>
+            </button>
+          </Tooltip>
+        </div>
+
         <div className="flex flex-row gap-4">
           <button
-            className="w-30 shadow-md p-3 rounded-full"
+            className="normal-button w-30 p-2 rounded-full "
             onClick={() => fileInputRef.current?.click()}
           >
             Load
           </button>
           <button
-            className="w-30 bg-orange-600 hover:bg-orange-400 hover:border-transparent hover:shadow-lg hover:shadow-orange-400/30 transition-all text-gray-200 shadow-md p-3 rounded-full"
+            className="highlight-button w-30 p-2 rounded-full"
             onClick={handleSaveModel}
           >
             Save
@@ -413,6 +757,12 @@ function App() {
           setEdges={setEdges}
           onSelectNode={handleSelectNode}
           selectedNodeId={selectedNodeId}
+          onNodeDragStart={(_, node) => {
+            movingNodes.current.add(node.id);
+          }}
+          onNodeDragStop={(_, node) => {
+            movingNodes.current.delete(node.id);
+          }}
         />
         <Inspector
           node={inspectorNode}

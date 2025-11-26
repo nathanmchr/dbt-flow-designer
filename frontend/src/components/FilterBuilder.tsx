@@ -81,10 +81,10 @@ function ToggleSwitch({
   return (
     <button
       onClick={handleClick}
-      className="relative inline-flex items-center h-8 w-20 rounded-full bg-gray-200/50 dark:bg-gray-700/50 backdrop-blur-md border-gray-300 dark:border-gray-600 shadow-inner drop-shadow-md dark:shadow-black/20 transition-colors duration-300 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2"
+      className="toggle-track relative inline-flex items-center h-8 w-20"
     >
       {/* Labels */}
-      <span className="absolute left-1.5  text-xs font-bold text-gray-500 dark:text-gray-400">
+      <span className="absolute left-1.5 text-xs font-bold text-gray-500 dark:text-gray-400">
         AND
       </span>
       <span className="absolute right-3 text-xs font-bold text-gray-500 dark:text-gray-400">
@@ -93,7 +93,7 @@ function ToggleSwitch({
 
       {/* Sliding pill - orange */}
       <span
-        className={`absolute h-6 w-9 rounded-full bg-orange-600 transform ${
+        className={`toggle-thumb absolute h-6 w-9 transform ${
           shouldAnimate ? "transition-transform duration-300 ease-in-out" : ""
         } flex items-center justify-center`}
         style={{
@@ -142,20 +142,19 @@ function ConditionBlock({
     condition.operator !== "IS NULL" && condition.operator !== "IS NOT NULL";
 
   return (
-    <div
-      ref={setNodeRef}
-      style={style}
-      className="border border-gray-300 dark:border-gray-700 bg-white/50 dark:bg-gray-800/50 backdrop-blur-md shadow-md dark:shadow-black/20 rounded-lg p-3 mb-2"
-    >
+    <div ref={setNodeRef} style={style} className="card p-3 my-2">
       <div className="flex items-start gap-2">
         {/* Drag Handle */}
         <button
           {...attributes}
           {...listeners}
-          className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-grab active:cursor-grabbing border-transparent"
+          className="cursor-grab active:cursor-grabbing bg-transparent shadow-none border-none backdrop-blur-none text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
         >
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
-            <path d="M5 3h2v2H5V3zm4 0h2v2H9V3zM5 7h2v2H5V7zm4 0h2v2H9V7zm-4 4h2v2H5v-2zm4 0h2v2H9v-2z" />
+          <svg className="w-4 h-4" viewBox="0 0 16 16">
+            <path
+              fill="currentColor"
+              d="M5 3h2v2H5V3zm4 0h2v2H9V3zM5 7h2v2H5V7zm4 0h2v2H9V7zm-4 4h2v2H5v-2zm4 0h2v2H9v-2z"
+            />
           </svg>
         </button>
 
@@ -212,10 +211,8 @@ function ConditionBlock({
         <button
           onClick={onDelete}
           disabled={!canDelete}
-          className={`w-6 h-6 flex justify-center items-center rounded-full bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 shadow-md dark:shadow-black/20 text-xs font-bold ${
-            canDelete
-              ? "text-red-600 dark:text-red-500 hover:text-red-400"
-              : "text-gray-300 dark:text-gray-600 cursor-not-allowed"
+          className={`delete-button w-6 h-6 flex justify-center items-center rounded-full text-xs font-bold ${
+            canDelete ? "" : "cursor-not-allowed"
           }`}
         >
           <svg
@@ -405,7 +402,7 @@ function GroupBlock({
           {onDelete && (
             <button
               onClick={onDelete}
-              className="w-6 h-6 flex justify-center items-center rounded-full shadow-md dark:shadow-black/20 bg-gray-200 dark:bg-gray-700 text-red-600 dark:text-red-500 hover:text-red-400 border border-gray-300 dark:border-gray-600 text-xs font-bold"
+              className="delete-button w-6 h-6 flex justify-center items-center text-xs"
             >
               <svg
                 className="w-4 h-4"
@@ -480,7 +477,7 @@ function GroupBlock({
       <div className="flex gap-2 mt-3">
         <button
           onClick={addCondition}
-          className="flex-1 px-2 py-1 hover:border-transparent text-sm bg-orange-600 hover:bg-orange-400 text-white rounded-full shadow-md dark:shadow-black/20 hover:shadow-lg hover:shadow-orange-400/30 transition-all flex items-center justify-center gap-1"
+          className="highlight-button flex *:flex-1 px-2 py-1 items-center justify-center gap-1 rounded-full"
         >
           <svg
             className="w-4 h-4"
@@ -499,7 +496,7 @@ function GroupBlock({
         </button>
         <button
           onClick={addGroup}
-          className="flex-1 px-2 py-1 text-sm bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 text-white rounded-full shadow-md dark:shadow-black/20 hover:bg-gray-400 dark:hover:bg-gray-600 transition-all flex items-center justify-center gap-1"
+          className="normal-button flex flex-1 px-2 py-1 items-center justify-center gap-1 rounded-full"
         >
           <svg
             className="w-4 h-4"

@@ -12,7 +12,7 @@ import {
   type NodeChange,
 } from "@xyflow/react";
 import { useCallback, type Dispatch, type SetStateAction } from "react";
-import type { OperationDefinition } from "../domain/operations";
+import type { OperationDefinition } from "../definitions/operations";
 import OperationNode from "./nodes/OperationNode";
 import { AnimatedEdge } from "./AnimatedEdge";
 
@@ -36,6 +36,8 @@ interface FlowchartProps {
     } | null
   ) => void;
   selectedNodeId?: string | null;
+  onNodeDragStart?: (event: React.MouseEvent, node: OperationNodeType) => void;
+  onNodeDragStop?: (event: React.MouseEvent, node: OperationNodeType) => void;
 }
 
 function Flowchart({
@@ -45,6 +47,8 @@ function Flowchart({
   setEdges,
   onSelectNode,
   selectedNodeId,
+  onNodeDragStart,
+  onNodeDragStop,
 }: FlowchartProps) {
   const nodeTypes = { operation: OperationNode };
 
@@ -77,6 +81,24 @@ function Flowchart({
     [setEdges]
   );
 
+  // Validation des connexions : seul un node "database" peut se connecter à un node "source-table"
+  const isValidConnection = useCallback(
+    (connection: Edge | Connection) => {
+      const sourceNode = nodes.find((n) => n.id === connection.source);
+      const targetNode = nodes.find((n) => n.id === connection.target);
+
+      if (!sourceNode || !targetNode) return false;
+
+      // Si la cible est un node "source-table", la source doit être un node "database"
+      if (targetNode.data?.operation?.id === "source-table") {
+        return sourceNode.data?.operation?.id === "database";
+      }
+
+      return true;
+    },
+    [nodes]
+  );
+
   const onConnect = useCallback(
     (params: Connection) =>
       setEdges((prev) => addEdge({ ...params, type: "animated" }, prev)),
@@ -107,13 +129,19 @@ function Flowchart({
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
+        isValidConnection={isValidConnection}
         nodeTypes={nodeTypes}
         edgeTypes={{ animated: AnimatedEdge }}
         connectionLineStyle={{ strokeWidth: 2, stroke: "var(--edge-color)" }}
         fitView
         minZoom={0.2}
         maxZoom={1.2}
+        panOnScroll
+        zoomOnScroll={false}
+        zoomOnPinch
         onPaneClick={() => onSelectNode?.(null)}
+        onNodeDragStart={onNodeDragStart}
+        onNodeDragStop={onNodeDragStop}
       >
         <Background />
         <Controls />
@@ -124,7 +152,7 @@ function Flowchart({
         href="https://reactflow.dev/"
         target="_blank"
         rel="noopener noreferrer"
-        className="fixed bottom-[1.04rem] left-1/2 -translate-x-1/2 -ml-17 px-2 py-1 rounded-md border border-gray-300 dark:border-gray-700 bg-white/50 dark:bg-gray-800/50 backdrop-blur-md shadow-md dark:shadow-black/20 text-[0.7rem] hover:underline transition-colors cursor-pointer"
+        className="flowchart-attribution"
       >
         React Flow
       </a>

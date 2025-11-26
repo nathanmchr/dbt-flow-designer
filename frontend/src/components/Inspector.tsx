@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
-import type { OperationDefinition, OperationParam } from "../domain/operations";
-import type { ColumnDefinition } from "../domain/columnPropagation";
+import type {
+  OperationDefinition,
+  OperationParam,
+} from "../definitions/operations";
+import type { ColumnDefinition } from "../definitions/columnPropagation";
+import { DBT_ADAPTERS } from "../definitions/dbtAdapters";
 import FilterBuilder, { type FilterGroup } from "./FilterBuilder";
 
 type InspectorNode = {
@@ -53,8 +57,8 @@ const ParamTooltip = ({ content }: { content: React.ReactNode }) => {
 
   return (
     <>
-      <div
-        className="w-4 h-4 flex justify-center items-center rounded-full bg-gray-200 dark:bg-gray-700 text-orange-600 text-xs cursor-help ml-1 shrink-0"
+      <button
+        className="flex w-5 h-5 p-1 rounded-full justify-center items-center text-sm font-bold cursor-help"
         onMouseEnter={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           setPosition({
@@ -66,7 +70,7 @@ const ParamTooltip = ({ content }: { content: React.ReactNode }) => {
         onMouseLeave={() => setVisible(false)}
       >
         ?
-      </div>
+      </button>
       {visible &&
         createPortal(
           <div
@@ -357,6 +361,7 @@ function Inspector({
       | { column: string; operator: string; value: string }
       | { leftColumn: string; operator: string; rightColumn: string }
       | FilterGroup
+      | Record<string, unknown>
   ) => {
     setFormValues((prev) => ({
       ...prev,
@@ -394,7 +399,7 @@ function Inspector({
 
   return (
     <div
-      className="panel fixed right-4 top-21 z-50 h-[calc(100%-115px)] flex flex-col"
+      className="panel fixed right-4 top-19 z-50 h-[calc(100%-var(--spacing)*27)] flex flex-col"
       style={{ ...panelStyle, width: `${width}px` }}
     >
       {/* Resize handle */}
@@ -412,14 +417,11 @@ function Inspector({
         </div>
       ) : (
         <>
-          <div className="shrink-0 pb-2 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
-            <p className="text-xs uppercase tracking-[0.2em] text-gray-400 font-bold">
+          <div className="shrink-0 flex justify-between items-center px-4 pt-4">
+            <p className="pb-2 border-b text-xs font-bold uppercase tracking-[0.2em] border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400">
               Parameters
             </p>
-            <button
-              onClick={onClose}
-              className="text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 backdrop-blur-md rounded-full p-1 border border-gray-300 hover:border-gray-200 dark:border-gray-600 dark:hover:border-gray-500 bg-gray-300/50 dark:bg-gray-600/50 hover:bg-white/50 dark:hover:bg-gray-400/50 shadow-md hover:shadow-xl dark:hover:shadow-lg dark:shadow-black/20 hover:shadow-white dark:hover:shadow-white/10 transition-colors"
-            >
+            <button onClick={onClose} className="rounded-full p-1">
               <svg
                 className="w-4 h-4"
                 fill="none"
@@ -435,7 +437,7 @@ function Inspector({
               </svg>
             </button>
           </div>
-          <div className="overflow-y-auto flex-1 mask-gradient-top pr-2 -mr-2">
+          <div className="overflow-y-auto flex-1 mask-gradient-both px-4 pr-3 -mr-3 pb-6 -mb-2">
             <div className="pt-4 pb-4 space-y-4">
               <div>
                 <h2 className="text-lg font-semibold">
@@ -730,7 +732,7 @@ function Inspector({
                       <span>
                         {param.label}
                         {param.required && (
-                          <span className="ml-1 text-orange-500">*</span>
+                          <span className="ml-1 text-orange-600">*</span>
                         )}
                       </span>
                       {/* Generic tooltip for any parameter */}
@@ -888,11 +890,11 @@ function Inspector({
                         ).map((column, index) => (
                           <div
                             key={index}
-                            className="flex gap-2 items-start p-3 rounded-lg bg-gray-100 dark:bg-gray-800"
+                            className="card flex gap-2 items-start p-3"
                           >
                             <div className="flex-1 space-y-2">
                               <input
-                                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+                                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm backdrop-blur-sm"
                                 type="text"
                                 placeholder="Column name"
                                 value={column.name}
@@ -911,7 +913,7 @@ function Inspector({
                                 }}
                               />
                               <select
-                                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
+                                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm backdrop-blur-sm"
                                 value={column.type}
                                 onChange={(event) => {
                                   const newColumns = [
@@ -937,7 +939,7 @@ function Inspector({
                             </div>
                             <button
                               type="button"
-                              className="mt-1 p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+                              className="delete-button"
                               onClick={() => {
                                 const newColumns = (
                                   formValues[param.name] as Array<{
@@ -1020,7 +1022,7 @@ function Inspector({
                               {validColumns.map((col, index) => (
                                 <div
                                   key={index}
-                                  className="flex gap-2 items-start p-3 bg-gray-50 dark:bg-gray-800 rounded-lg"
+                                  className="card flex gap-2 items-start p-3 my-4"
                                 >
                                   <div className="flex-1 space-y-2">
                                     <div>
@@ -1056,7 +1058,7 @@ function Inspector({
                                   </div>
                                   <button
                                     type="button"
-                                    className="mt-1 p-2 rounded-lg hover:bg-red-100 dark:hover:bg-red-900/20 text-red-600 dark:text-red-400 transition-colors"
+                                    className="delete-button p-1"
                                     onClick={() => {
                                       const newColumns = validColumns.filter(
                                         (_, i) => i !== index
@@ -1065,7 +1067,7 @@ function Inspector({
                                     }}
                                   >
                                     <svg
-                                      className="w-5 h-5"
+                                      className="w-4 h-4"
                                       fill="none"
                                       viewBox="0 0 24 24"
                                       stroke="currentColor"
@@ -1359,6 +1361,99 @@ function Inspector({
                         value={(formValues[param.name] as string) ?? ""}
                         readOnly
                       />
+                    ) : param.type === "adapter-selector" ? (
+                      <div className="space-y-4">
+                        <select
+                          className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2"
+                          value={
+                            ((formValues[param.name] as Record<string, unknown>)
+                              ?.type as string) || ""
+                          }
+                          onChange={(e) =>
+                            handleChange(param, { type: e.target.value })
+                          }
+                        >
+                          <option value="">Select a database type...</option>
+                          {DBT_ADAPTERS.map((adapter) => (
+                            <option key={adapter.id} value={adapter.id}>
+                              {adapter.label}
+                            </option>
+                          ))}
+                        </select>
+
+                        {(() => {
+                          const currentConfig =
+                            (formValues[param.name] as Record<
+                              string,
+                              unknown
+                            >) || {};
+                          const selectedAdapter = DBT_ADAPTERS.find(
+                            (a) => a.id === currentConfig.type
+                          );
+
+                          if (!selectedAdapter) return null;
+
+                          return (
+                            <div className="space-y-3 p-4 bg-gray-50 dark:bg-gray-900/30 rounded-xl border border-gray-200 dark:border-gray-700">
+                              {selectedAdapter.params.map((field) => (
+                                <div key={field.name}>
+                                  <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
+                                    {field.label}
+                                    {field.required && (
+                                      <span className="text-orange-600 ml-0.5">
+                                        *
+                                      </span>
+                                    )}
+                                  </label>
+                                  {field.type === "select" ? (
+                                    <select
+                                      className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                                      value={
+                                        (currentConfig[field.name] as string) ||
+                                        ""
+                                      }
+                                      onChange={(e) =>
+                                        handleChange(param, {
+                                          ...currentConfig,
+                                          [field.name]: e.target.value,
+                                        })
+                                      }
+                                    >
+                                      <option value="">Select...</option>
+                                      {field.options?.map((opt) => (
+                                        <option key={opt} value={opt}>
+                                          {opt}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <input
+                                      type={
+                                        field.type === "password"
+                                          ? "password"
+                                          : field.type === "number"
+                                          ? "number"
+                                          : "text"
+                                      }
+                                      className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
+                                      value={
+                                        (currentConfig[field.name] as string) ||
+                                        ""
+                                      }
+                                      onChange={(e) =>
+                                        handleChange(param, {
+                                          ...currentConfig,
+                                          [field.name]: e.target.value,
+                                        })
+                                      }
+                                    />
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          );
+                        })()}
+                      </div>
                     ) : param.type === "select" ? (
                       <select
                         className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2"
@@ -1405,16 +1500,16 @@ function Inspector({
               </div>
             </div>
           </div>
-          <div className="shrink-0 py-2 border-t border-gray-200 dark:border-gray-700 flex flex-row-reverse gap-2">
+          <div className="shrink-0 pb-4 flex flex-row-reverse gap-2 px-4">
             <button
-              className="rounded-full hover:border-transparent bg-orange-600 hover:bg-orange-400 px-4 py-1 text-gray-200 font-semibold shadow-md dark:shadow-black/20 hover:shadow-lg hover:shadow-orange-400/30 transition-all w-20"
+              className="highlight-button rounded-full px-4 py-1w-20"
               type="button"
               onClick={handleSave}
             >
               Save
             </button>
             <button
-              className="rounded-full bg-gray-200 dark:bg-gray-700 text-red-600 dark:text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 px-4 py-1 font-semibold shadow-md transition-all border-none"
+              className="delete-button px-4 py-1"
               onClick={() => renderedNode && onDelete(renderedNode.id)}
             >
               Delete

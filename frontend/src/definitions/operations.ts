@@ -19,7 +19,8 @@ export interface OperationParam {
     | "column-definition"
     | "filter-condition"
     | "filter-builder"
-    | "join-condition";
+    | "join-condition"
+    | "adapter-selector";
   required?: boolean;
   options?: string[];
   tooltip?: string;
@@ -43,6 +44,22 @@ export const OPERATION_DEFS: OperationDefinition[] = [
   // ------------------------------------------------------------
   // SOURCE OPERATIONS
   // ------------------------------------------------------------
+  {
+    id: "database",
+    label: "Database",
+    description: "Configure a database connection source.",
+    category: "source",
+    inputs: 0,
+    outputs: 1,
+    params: [
+      {
+        name: "adapter",
+        label: "Database Type",
+        type: "adapter-selector",
+        required: true,
+      },
+    ],
+  },
   {
     id: "source-manual",
     label: "Manual Table",
@@ -71,7 +88,7 @@ export const OPERATION_DEFS: OperationDefinition[] = [
     label: "Table",
     description: "Selects a table from the database as a source.",
     category: "source",
-    inputs: 0,
+    inputs: 1,
     outputs: 1,
     params: [
       {

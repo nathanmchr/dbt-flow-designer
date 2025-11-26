@@ -9,7 +9,7 @@
   :root {
     font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
 
-    @apply bg-gray-200 dark:bg-gray-900 text-gray-700 dark:text-gray-200;
+    @apply bg-gray-300 dark:bg-gray-900 text-gray-700 dark:text-gray-200;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
@@ -21,13 +21,12 @@
   #root {
     @apply h-full;
   }
-  button,
-  input {
-    @apply cursor-pointer border border-gray-300 dark:border-gray-700;
+  button {
+    @apply cursor-pointer rounded-full font-semibold backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border transition-colors text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-200/50 dark:bg-gray-700/50 hover:bg-white/50 dark:hover:bg-gray-500/50 dark:drop-shadow-black/20 hover:drop-shadow-white dark:hover:drop-shadow-white/10;
   }
 
   header {
-    @apply absolute top-0 bg-white/30 dark:bg-gray-800/50 backdrop-blur-lg border-b border-gray-300 dark:border-gray-700 px-6 py-4 w-full shadow-lg dark:shadow-black/20 justify-between items-center flex flex-row z-50;
+    @apply absolute top-0 flex flex-1 items-center gap-4 px-6 py-4 w-full z-50 shadow-xl backdrop-blur-md border-b bg-white/30 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700 shadow-black/7 dark:shadow-black/20;
   }
 
   /* Lock cursor during resize operations */
@@ -49,7 +48,7 @@
   }
 
   .panel {
-    @apply bg-white/50 dark:bg-gray-800/50 backdrop-blur-lg rounded-xl shadow-lg dark:shadow-black/20 border border-gray-300 dark:border-gray-700 px-4 pt-4 my-4 overflow-x-clip;
+    @apply my-4 rounded-3xl overflow-x-clip backdrop-blur-md drop-shadow-xl dark:drop-shadow-black/20 border bg-white/30 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700;
   }
 
   .flowchart {
@@ -57,12 +56,167 @@
   }
 
   .node {
-    @apply px-6 py-4 rounded-xl backdrop-blur-md border border-gray-200 dark:border-gray-700 dark:hover:border-gray-600 bg-gray-100/50 dark:bg-gray-800/50 hover:bg-white/50 dark:hover:bg-gray-600/50 shadow-md hover:shadow-xl dark:hover:shadow-lg dark:shadow-black/20 hover:shadow-white dark:hover:shadow-white/10 transition-all;
+    @apply px-6 py-4 rounded-2xl backdrop-blur-md drop-shadow-md hover:drop-shadow-xl dark:hover:drop-shadow-lg border border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-100/40 dark:bg-gray-800/50 hover:bg-white/60 dark:hover:bg-gray-500/50 dark:drop-shadow-black/20 hover:drop-shadow-white dark:hover:drop-shadow-white/10 transition-all;
+  }
+
+  .node.selected {
+    @apply drop-shadow-xl dark:drop-shadow-lg border-white dark:border-gray-600 bg-white/60 dark:bg-gray-500/50 drop-shadow-white dark:drop-shadow-white/10;
+  }
+
+  .node-icon {
+    @apply rounded-full flex justify-center items-center backdrop-blur-md border border-gray-100 dark:border-gray-700 bg-gray-400/10 dark:bg-gray-700/50 drop-shadow-md dark:drop-shadow-black/20 transition-all;
+  }
+
+  .node.selected .node-icon {
+    @apply drop-shadow-lg border-white dark:border-gray-500 bg-white/60 dark:bg-gray-500/50 drop-shadow-white dark:drop-shadow-white/10;
+  }
+  .node.selected .node-icon svg {
+    @apply stroke-orange-400;
+  }
+
+  .card {
+    @apply backdrop-blur-md drop-shadow-md rounded-2xl border border-gray-100 dark:border-gray-700 bg-gray-100/40 dark:bg-gray-800/50 dark:drop-shadow-black/20;
+  }
+
+  .highlight-button {
+    @apply border-none text-gray-200 bg-orange-600 hover:bg-orange-400 dark:border-gray-700 hover:drop-shadow-orange-400/30;
+  }
+
+  .delete-button {
+    @apply text-red-600 dark:text-red-500 hover:text-red-400 dark:hover:text-red-300;
   }
 
   .tooltip-content {
-    @apply fixed z-9999 w-72 bg-white/50 dark:bg-gray-800/50 backdrop-blur-sm border border-gray-300 dark:border-gray-700 rounded-lg shadow-xl dark:shadow-black/20 p-3 pointer-events-none text-xs;
+    @apply fixed z-9999 w-fit max-w-20 tooltip-content px-3 py-2 pointer-events-none text-xs backdrop-blur-sm rounded-xl drop-shadow-xl border border-gray-100 dark:border-gray-700 bg-white/40 dark:bg-gray-800/50 dark:drop-shadow-black/20;
   }
+
+  .toggle-track {
+    @apply bg-gray-200/50 dark:bg-gray-700/50 border-gray-100 dark:border-gray-600 shadow-inner drop-shadow-md dark:shadow-black/20 transition-colors duration-300;
+  }
+
+  .toggle-thumb {
+    @apply rounded-full bg-orange-600 transition-colors;
+  }
+
+  .toggle-track:hover .toggle-thumb {
+    @apply bg-orange-400 drop-shadow-lg drop-shadow-orange-400;
+  }
+}
+
+.react-flow .react-flow__controls {
+  @apply flex-row gap-2 shadow-none fixed! bottom-[0.1rem] left-[calc(50%-2.3rem)];
+}
+.react-flow .react-flow__controls-button {
+  @apply rounded-full backdrop-blur-md shadow-md hover:shadow-lg border text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-600 dark:hover:border-gray-500 bg-white/40 dark:bg-gray-800/50 hover:bg-white/60 dark:hover:bg-gray-500/50 dark:shadow-black/20 hover:shadow-white dark:hover:shadow-white/10 transition-all;
+}
+
+.react-flow__edge path {
+  @apply stroke-gray-400! dark:stroke-gray-600! drop-shadow-lg transition-colors;
+}
+
+.react-flow__edge circle {
+  @apply fill-gray-400! dark:fill-gray-600! transition-colors drop-shadow-lg!;
+}
+
+.react-flow__edge:hover path {
+  @apply stroke-gray-200! dark:stroke-gray-400!;
+}
+
+.react-flow__edge:hover circle {
+  @apply fill-gray-200! dark:fill-gray-400!;
+}
+
+/* Edge sélectionné */
+.react-flow__edge.selected path {
+  @apply stroke-white! dark:stroke-gray-300!;
+}
+
+.react-flow__edge.selected circle {
+  @apply fill-white! dark:fill-gray-300!;
+}
+
+/* Ligne de connexion en cours de tracé */
+.react-flow__connectionline path {
+  @apply stroke-gray-400! dark:stroke-gray-600!;
+}
+
+.react-flow__attribution {
+  display: none !important;
+}
+
+.flowchart-attribution {
+  @apply fixed bottom-[1.04rem] left-1/2 -translate-x-1/2 -ml-17 px-2 py-1 text-[0.7rem] hover:underline cursor-pointer rounded-lg backdrop-blur-md shadow-md hover:shadow-lg border text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-600 dark:hover:border-gray-500 bg-white/40 dark:bg-gray-800/50 hover:bg-white/60 dark:hover:bg-gray-500/50 dark:shadow-black/20 hover:shadow-white dark:hover:shadow-white/10 transition-all;
+}
+
+.react-flow {
+  --xy-handle-background-color-default: theme("colors.gray.400");
+  --xy-handle-border-color-default: theme("colors.gray.400");
+}
+
+@media (prefers-color-scheme: dark) {
+  .react-flow {
+    --xy-background-pattern-dots-color-default: theme("colors.gray.600");
+    --xy-handle-background-color-default: theme("colors.gray.600");
+    --xy-handle-border-color-default: theme("colors.gray.600");
+  }
+}
+
+.mask-gradient-top {
+  mask-image: linear-gradient(to bottom, transparent 0px, black 16px),
+    linear-gradient(to left, black, black);
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0px, black 16px),
+    linear-gradient(to left, black, black);
+  mask-size: calc(100% - 10px) 100%, 10px 100%;
+  mask-position: left top, right top;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: calc(100% - 10px) 100%, 10px 100%;
+  -webkit-mask-position: left top, right top;
+  -webkit-mask-repeat: no-repeat;
+}
+
+.mask-gradient-both {
+  mask-image: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0) 0px,
+      rgba(0, 0, 0, 0.7) 16px,
+      rgba(0, 0, 0, 0.85) 20.8px,
+      rgba(0, 0, 0, 0.925) 24.16px,
+      rgba(0, 0, 0, 0.963) 26.512px,
+      rgba(0, 0, 0, 0.981) 28.16px,
+      rgba(0, 0, 0, 1) 32px,
+      rgba(0, 0, 0, 1) calc(100% - 60px),
+      rgba(0, 0, 0, 0.981) calc(100% - 52.8px),
+      rgba(0, 0, 0, 0.963) calc(100% - 49.71px),
+      rgba(0, 0, 0, 0.925) calc(100% - 45.3px),
+      rgba(0, 0, 0, 0.85) calc(100% - 39px),
+      rgba(0, 0, 0, 0.7) calc(100% - 30px),
+      rgba(0, 0, 0, 0) 100%
+    ),
+    linear-gradient(to left, black, black);
+  -webkit-mask-image: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0) 0px,
+      rgba(0, 0, 0, 0.7) 16px,
+      rgba(0, 0, 0, 0.85) 20.8px,
+      rgba(0, 0, 0, 0.925) 24.16px,
+      rgba(0, 0, 0, 0.963) 26.512px,
+      rgba(0, 0, 0, 0.981) 28.16px,
+      rgba(0, 0, 0, 1) 32px,
+      rgba(0, 0, 0, 1) calc(100% - 60px),
+      rgba(0, 0, 0, 0.981) calc(100% - 52.8px),
+      rgba(0, 0, 0, 0.963) calc(100% - 49.71px),
+      rgba(0, 0, 0, 0.925) calc(100% - 45.3px),
+      rgba(0, 0, 0, 0.85) calc(100% - 39px),
+      rgba(0, 0, 0, 0.7) calc(100% - 30px),
+      rgba(0, 0, 0, 0) 100%
+    ),
+    linear-gradient(to left, black, black);
+  mask-size: calc(100% - 10px) 100%, 10px 100%;
+  mask-position: left top, right top;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: calc(100% - 10px) 100%, 10px 100%;
+  -webkit-mask-position: left top, right top;
+  -webkit-mask-repeat: no-repeat;
 }
 
 @keyframes slideInFromLeft {
@@ -87,94 +241,6 @@
   }
 }
 
-.react-flow .react-flow__controls {
-  @apply flex-row gap-2 shadow-none fixed! bottom-[0.1rem] left-[calc(50%-2.3rem)];
-}
-.react-flow .react-flow__controls-button {
-  @apply rounded-md border border-gray-300 dark:border-gray-700 bg-white/50 dark:bg-gray-800/50 backdrop-blur-md shadow-md dark:shadow-black/20;
-}
-
-.react-flow__minimap {
-  @apply opacity-60 mr-77;
-}
-
-.react-flow__minimap-svg path {
-  @apply fill-gray-200 dark:fill-gray-800;
-}
-
-.react-flow__minimap-node {
-  @apply fill-gray-200 dark:fill-gray-800!;
-}
-
-.react-flow__attribution {
-  display: none !important;
-}
-
-.react-flow {
-  --xy-minimap-background-color-default: theme("colors.white");
-  --xy-minimap-node-color-default: theme("colors.gray.100");
-  --xy-handle-background-color-default: theme("colors.gray.300");
-  --xy-handle-border-color-default: theme("colors.gray.300");
-}
-
-@media (prefers-color-scheme: dark) {
-  .react-flow {
-    --xy-background-pattern-dots-color-default: theme("colors.gray.600");
-    --xy-minimap-background-color-default: theme("colors.gray.900");
-    --xy-handle-background-color-default: theme("colors.gray.700");
-    --xy-handle-border-color-default: theme("colors.gray.700");
-  }
-}
-
-.mask-gradient-top {
-  mask-image: linear-gradient(
-      to bottom,
-      transparent 0px,
-      rgba(0, 0, 0, 0.013) 2.7px,
-      rgba(0, 0, 0, 0.049) 5.3px,
-      rgba(0, 0, 0, 0.104) 7.8px,
-      rgba(0, 0, 0, 0.175) 10.2px,
-      rgba(0, 0, 0, 0.259) 12.6px,
-      rgba(0, 0, 0, 0.352) 15px,
-      rgba(0, 0, 0, 0.45) 17.4px,
-      rgba(0, 0, 0, 0.55) 19.8px,
-      rgba(0, 0, 0, 0.648) 22.2px,
-      rgba(0, 0, 0, 0.741) 24.6px,
-      rgba(0, 0, 0, 0.825) 27px,
-      rgba(0, 0, 0, 0.896) 29.4px,
-      rgba(0, 0, 0, 0.951) 31.8px,
-      rgba(0, 0, 0, 0.987) 34.2px,
-      black 36px
-    ),
-    linear-gradient(to left, black, black);
-  -webkit-mask-image: linear-gradient(
-      to bottom,
-      transparent 0px,
-      rgba(0, 0, 0, 0.013) 2.7px,
-      rgba(0, 0, 0, 0.049) 5.3px,
-      rgba(0, 0, 0, 0.104) 7.8px,
-      rgba(0, 0, 0, 0.175) 10.2px,
-      rgba(0, 0, 0, 0.259) 12.6px,
-      rgba(0, 0, 0, 0.352) 15px,
-      rgba(0, 0, 0, 0.45) 17.4px,
-      rgba(0, 0, 0, 0.55) 19.8px,
-      rgba(0, 0, 0, 0.648) 22.2px,
-      rgba(0, 0, 0, 0.741) 24.6px,
-      rgba(0, 0, 0, 0.825) 27px,
-      rgba(0, 0, 0, 0.896) 29.4px,
-      rgba(0, 0, 0, 0.951) 31.8px,
-      rgba(0, 0, 0, 0.987) 34.2px,
-      black 36px
-    ),
-    linear-gradient(to left, black, black);
-  mask-size: calc(100% - 10px) 100%, 10px 100%;
-  mask-position: left top, right top;
-  mask-repeat: no-repeat;
-  -webkit-mask-size: calc(100% - 10px) 100%, 10px 100%;
-  -webkit-mask-position: left top, right top;
-  -webkit-mask-repeat: no-repeat;
-}
-
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
   width: 12px;
@@ -187,7 +253,7 @@
 }
 
 ::-webkit-scrollbar-thumb {
-  background-color: #dde1e7;
+  background-color: theme("colors.gray.300");
   border-radius: 9999px;
   transition: background-color 150ms;
   border: 3px solid transparent;
@@ -195,7 +261,8 @@
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background-color: #e5e7eb;
+  background-color: theme("colors.gray.300");
+  border: 2px solid transparent;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -203,6 +270,6 @@
     background-color: theme("colors.gray.700");
   }
   ::-webkit-scrollbar-thumb:hover {
-    background-color: theme("colors.gray.600");
+    background-color: theme("colors.gray.700");
   }
 }

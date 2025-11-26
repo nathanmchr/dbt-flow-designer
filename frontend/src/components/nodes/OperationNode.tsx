@@ -1,7 +1,7 @@
 import { memo, useState } from "react";
 import { createPortal } from "react-dom";
 import { Handle, Position } from "@xyflow/react";
-import type { OperationDefinition } from "../../domain/operations";
+import type { OperationDefinition } from "../../definitions/operations";
 import { getOperationIcon } from "../icons";
 
 interface OperationNodeProps {
@@ -74,8 +74,8 @@ const NodeTooltip = ({ content }: { content: React.ReactNode }) => {
 
   return (
     <>
-      <div
-        className="w-6 h-6 flex justify-center items-center text-sm font-bold cursor-help text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 backdrop-blur-md rounded-full p-1 border border-gray-300 hover:border-gray-200 dark:border-gray-600 dark:hover:border-gray-500 bg-gray-300/50 dark:bg-gray-600/50 hover:bg-white/50 dark:hover:bg-gray-400/50 shadow-md hover:shadow-xl dark:hover:shadow-lg dark:shadow-black/20 hover:shadow-white dark:hover:shadow-white/10 transition-colors"
+      <button
+        className="flex w-5 h-5 p-1 rounded-full justify-center items-center text-sm font-bold cursor-help"
         onMouseEnter={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           setPosition({
@@ -87,7 +87,7 @@ const NodeTooltip = ({ content }: { content: React.ReactNode }) => {
         onMouseLeave={() => setVisible(false)}
       >
         ?
-      </div>
+      </button>
       {visible &&
         createPortal(
           <div
@@ -116,9 +116,7 @@ function OperationNode({ id, data }: OperationNodeProps) {
   return (
     <div
       className={`relative node px-4 py-3 w-60 cursor-pointer ${
-        isSelected
-          ? "border-gray-300 dark:border-gray-600 bg-white/50 dark:bg-gray-600/50 shadow-xl dark:shadow-lg shadow-white dark:shadow-white/10"
-          : "border-gray-300 dark:border-gray-700 dark:hover:border-gray-600"
+        isSelected ? "selected" : ""
       }`}
       onClick={() => onConfigure?.({ id, operation, params })}
     >
@@ -138,7 +136,7 @@ function OperationNode({ id, data }: OperationNodeProps) {
 
       {/* Header: Operation name */}
       <div className="flex">
-        <div className="rounded-full w-12 h-12 flex justify-center items-center backdrop-blur-md border border-gray-300 dark:border-gray-600 bg-gray-300/50 dark:bg-gray-700/50 shadow-md dark:shadow-black/20 text-gray-600 dark:text-gray-300">
+        <div className="node-icon w-11 h-11">
           {getOperationIcon(operation.id, "w-6 h-6 text-orange-600")}
         </div>
 
