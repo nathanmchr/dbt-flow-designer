@@ -164,8 +164,6 @@ function ConditionBlock({
           <select
             value={condition.column}
             onChange={(e) => onUpdate({ ...condition, column: e.target.value })}
-            className="min-w-0 px-2 py-1 text-sm rounded bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600"
-            style={{ flex: "1 1 140px" }}
           >
             <option value="">Select column...</option>
             {availableColumns.map((col) => (
@@ -181,8 +179,6 @@ function ConditionBlock({
             onChange={(e) =>
               onUpdate({ ...condition, operator: e.target.value })
             }
-            className="min-w-0 px-2 py-1 text-sm rounded bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600"
-            style={{ flex: "1 1 100px" }}
           >
             <option value="">Op...</option>
             {OPERATORS.map((op) => (
@@ -201,8 +197,6 @@ function ConditionBlock({
                 onUpdate({ ...condition, value: e.target.value })
               }
               placeholder="Value..."
-              className="min-w-0 px-2 py-1 text-sm rounded bg-gray-200 dark:bg-gray-700 border border-gray-300 dark:border-gray-600"
-              style={{ flex: "1 1 140px" }}
             />
           )}
         </div>
@@ -211,7 +205,7 @@ function ConditionBlock({
         <button
           onClick={onDelete}
           disabled={!canDelete}
-          className={`delete-button w-6 h-6 flex justify-center items-center rounded-full text-xs font-bold ${
+          className={`delete-button w-6 h-6 flex justify-center items-center ${
             canDelete ? "" : "cursor-not-allowed"
           }`}
         >
@@ -375,11 +369,7 @@ function GroupBlock({
       ref={setNodeRef}
       style={style}
       className={`
-        ${
-          isRoot
-            ? ""
-            : "bg-gray-50 dark:bg-gray-900 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-lg p-3 mb-2"
-        }
+        ${isRoot ? "" : "filter-group p-3 mb-2"}
       `}
     >
       {!isRoot && (

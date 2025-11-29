@@ -1,10 +1,6 @@
 @import "tailwindcss";
 @import "@xyflow/react/dist/style.css";
 
-@theme {
-  --edge-color: theme("colors.gray.500");
-}
-
 @layer base {
   :root {
     font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
@@ -21,12 +17,13 @@
   #root {
     @apply h-full;
   }
+
   button {
-    @apply cursor-pointer rounded-full font-semibold backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border transition-colors text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-200/50 dark:bg-gray-700/50 hover:bg-white/50 dark:hover:bg-gray-500/50 dark:drop-shadow-black/20 hover:drop-shadow-white dark:hover:drop-shadow-white/10;
+    @apply cursor-pointer transition-colors;
   }
 
   header {
-    @apply absolute top-0 flex flex-1 items-center gap-4 px-6 py-4 w-full z-50 shadow-xl backdrop-blur-md border-b bg-white/30 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700 shadow-black/7 dark:shadow-black/20;
+    @apply absolute top-0 flex flex-1 items-center gap-4 px-6 py-4 w-full z-50 drop-shadow-xl backdrop-blur-md border-b bg-gray-200/30 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700 drop-shadow-black/7 dark:drop-shadow-black/20;
   }
 
   /* Lock cursor during resize operations */
@@ -40,6 +37,26 @@
   header h1 {
     @apply text-orange-600 font-bold text-3xl;
   }
+
+  input,
+  select {
+    @apply min-w-0 w-full px-2 h-8 text-sm rounded-xl border shadow-inner transition-colors border-white/80 dark:border-gray-700 bg-gray-300/20 dark:bg-gray-800/10 dark:shadow-black/25;
+  }
+
+  select {
+    appearance: none;
+    /* Light mode arrow (gray-500: #6b7280) */
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    background-size: 1rem;
+    @apply pr-6.5 text-ellipsis;
+  }
+
+  /* Dark mode arrow (gray-400: #9ca3af) */
+  :is(.dark select) {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
+  }
 }
 
 @layer components {
@@ -48,7 +65,7 @@
   }
 
   .panel {
-    @apply my-4 rounded-3xl overflow-x-clip backdrop-blur-md drop-shadow-xl dark:drop-shadow-black/20 border bg-white/30 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700;
+    @apply my-4 rounded-3xl overflow-x-clip backdrop-blur-md drop-shadow-xl dark:drop-shadow-black/20 border bg-gray-200/30 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700;
   }
 
   .flowchart {
@@ -56,46 +73,68 @@
   }
 
   .node {
-    @apply px-6 py-4 rounded-2xl backdrop-blur-md drop-shadow-md hover:drop-shadow-xl dark:hover:drop-shadow-lg border border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-100/40 dark:bg-gray-800/50 hover:bg-white/60 dark:hover:bg-gray-500/50 dark:drop-shadow-black/20 hover:drop-shadow-white dark:hover:drop-shadow-white/10 transition-all;
+    @apply px-6 py-4 rounded-2xl backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-100/40 dark:bg-gray-700/30 hover:bg-white/60 dark:hover:bg-gray-500/50 dark:drop-shadow-black/30 hover:drop-shadow-white dark:hover:drop-shadow-white/10 transition-all;
   }
 
   .node.selected {
-    @apply drop-shadow-xl dark:drop-shadow-lg border-white dark:border-gray-600 bg-white/60 dark:bg-gray-500/50 drop-shadow-white dark:drop-shadow-white/10;
+    @apply drop-shadow-xl dark:drop-shadow-lg border-white dark:border-gray-500 bg-white/60 dark:bg-gray-500/50 drop-shadow-white dark:drop-shadow-white/10;
   }
 
   .node-icon {
-    @apply rounded-full flex justify-center items-center backdrop-blur-md border border-gray-100 dark:border-gray-700 bg-gray-400/10 dark:bg-gray-700/50 drop-shadow-md dark:drop-shadow-black/20 transition-all;
+    @apply rounded-full flex justify-center items-center backdrop-blur-md border border-gray-100 dark:border-gray-700 bg-gray-100/50 dark:bg-gray-700/50 drop-shadow-md dark:drop-shadow-black/20 transition-all;
+  }
+
+  .node:hover .node-icon,
+  .node:hover .normal-button {
+    @apply border-gray-50 dark:border-gray-600;
   }
 
   .node.selected .node-icon {
     @apply drop-shadow-lg border-white dark:border-gray-500 bg-white/60 dark:bg-gray-500/50 drop-shadow-white dark:drop-shadow-white/10;
   }
+
+  .node:hover .normal-button {
+    @apply border-gray-50 dark:border-gray-600 hover:border-white dark:hover:border-gray-500;
+  }
+
+  .node.selected .normal-button {
+    @apply border-gray-50 dark:border-gray-600 hover:border-white dark:hover:border-gray-500;
+  }
+
   .node.selected .node-icon svg {
     @apply stroke-orange-400;
   }
 
   .card {
-    @apply backdrop-blur-md drop-shadow-md rounded-2xl border border-gray-100 dark:border-gray-700 bg-gray-100/40 dark:bg-gray-800/50 dark:drop-shadow-black/20;
+    @apply backdrop-blur-xl drop-shadow-md rounded-2xl border border-gray-100 dark:border-gray-700 bg-white/60 dark:bg-gray-800/60 dark:drop-shadow-black/30;
+  }
+
+  .normal-button {
+    @apply rounded-full font-semibold backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-100/50 dark:bg-gray-700/50 hover:bg-white/50 dark:hover:bg-gray-500/50 dark:drop-shadow-black/30 hover:drop-shadow-white dark:hover:drop-shadow-white/10;
   }
 
   .highlight-button {
-    @apply border-none text-gray-200 bg-orange-600 hover:bg-orange-400 dark:border-gray-700 hover:drop-shadow-orange-400/30;
+    @apply rounded-full font-semibold backdrop-blur-md drop-shadow-md hover:drop-shadow-lg text-gray-200 bg-orange-600 hover:bg-orange-400 dark:border-gray-700 dark:drop-shadow-black/20 hover:drop-shadow-orange-400/30;
   }
 
   .delete-button {
-    @apply text-red-600 dark:text-red-500 hover:text-red-400 dark:hover:text-red-300;
+    @apply rounded-full font-semibold backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border text-red-600 dark:text-red-500 hover:text-red-400 dark:hover:text-red-200 border-gray-100 hover:border-red-50 dark:border-gray-700 dark:hover:border-red-300/40 bg-gray-100/50 dark:bg-gray-700/50 hover:bg-red-100/50 dark:hover:bg-red-200/40 dark:drop-shadow-black/20 hover:drop-shadow-red-100 dark:hover:drop-shadow-red-300/30;
   }
 
   .tooltip-content {
-    @apply fixed z-9999 w-fit max-w-20 tooltip-content px-3 py-2 pointer-events-none text-xs backdrop-blur-sm rounded-xl drop-shadow-xl border border-gray-100 dark:border-gray-700 bg-white/40 dark:bg-gray-800/50 dark:drop-shadow-black/20;
+    @apply fixed z-9999 w-fit max-w-60 px-3 py-2 pointer-events-none text-xs backdrop-blur-lg rounded-xl drop-shadow-xl border border-gray-100 dark:border-gray-700 bg-white/40 dark:bg-gray-700/40 dark:drop-shadow-black/20;
+  }
+
+  .filter-group {
+    @apply bg-gray-100/50 dark:bg-gray-900/30 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-2xl;
   }
 
   .toggle-track {
-    @apply bg-gray-200/50 dark:bg-gray-700/50 border-gray-100 dark:border-gray-600 shadow-inner drop-shadow-md dark:shadow-black/20 transition-colors duration-300;
+    @apply shadow-inner rounded-full border dark:shadow-black/30 transition-colors duration-300 bg-gray-200/50 dark:bg-gray-700/30 border-gray-100 dark:border-gray-700;
   }
 
   .toggle-thumb {
-    @apply rounded-full bg-orange-600 transition-colors;
+    @apply rounded-full drop-shadow-md dark:drop-shadow-black/25 bg-orange-600 transition-colors;
   }
 
   .toggle-track:hover .toggle-thumb {
@@ -106,24 +145,25 @@
 .react-flow .react-flow__controls {
   @apply flex-row gap-2 shadow-none fixed! bottom-[0.1rem] left-[calc(50%-2.3rem)];
 }
+
 .react-flow .react-flow__controls-button {
-  @apply rounded-full backdrop-blur-md shadow-md hover:shadow-lg border text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-600 dark:hover:border-gray-500 bg-white/40 dark:bg-gray-800/50 hover:bg-white/60 dark:hover:bg-gray-500/50 dark:shadow-black/20 hover:shadow-white dark:hover:shadow-white/10 transition-all;
+  @apply rounded-full font-semibold backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-100/50 dark:bg-gray-700/50 hover:bg-white/50 dark:hover:bg-gray-500/50 dark:drop-shadow-black/30 hover:drop-shadow-white dark:hover:drop-shadow-white/10;
 }
 
 .react-flow__edge path {
-  @apply stroke-gray-400! dark:stroke-gray-600! drop-shadow-lg transition-colors;
+  @apply stroke-gray-400! dark:stroke-gray-600!;
 }
 
 .react-flow__edge circle {
-  @apply fill-gray-400! dark:fill-gray-600! transition-colors drop-shadow-lg!;
+  @apply fill-gray-400! dark:fill-gray-600!;
 }
 
 .react-flow__edge:hover path {
-  @apply stroke-gray-200! dark:stroke-gray-400!;
+  @apply stroke-gray-200! dark:stroke-gray-400! transition-colors;
 }
 
 .react-flow__edge:hover circle {
-  @apply fill-gray-200! dark:fill-gray-400!;
+  @apply fill-gray-200! dark:fill-gray-400! transition-colors;
 }
 
 /* Edge sélectionné */
@@ -145,7 +185,7 @@
 }
 
 .flowchart-attribution {
-  @apply fixed bottom-[1.04rem] left-1/2 -translate-x-1/2 -ml-17 px-2 py-1 text-[0.7rem] hover:underline cursor-pointer rounded-lg backdrop-blur-md shadow-md hover:shadow-lg border text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-600 dark:hover:border-gray-500 bg-white/40 dark:bg-gray-800/50 hover:bg-white/60 dark:hover:bg-gray-500/50 dark:shadow-black/20 hover:shadow-white dark:hover:shadow-white/10 transition-all;
+  @apply fixed bottom-[1.04rem] left-1/2 -translate-x-1/2 -ml-17 px-2 py-1 text-[0.7rem] hover:underline cursor-pointer rounded-lg backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-100/50 dark:bg-gray-700/50 hover:bg-white/50 dark:hover:bg-gray-500/50 dark:drop-shadow-black/30 hover:drop-shadow-white dark:hover:drop-shadow-white/10;
 }
 
 .react-flow {

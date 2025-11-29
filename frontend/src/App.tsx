@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { Edge, Node } from "@xyflow/react";
 import Flowchart from "./components/Flowchart";
 import Inspector from "./components/Inspector";
@@ -9,6 +10,7 @@ import {
 } from "./definitions/operations";
 import { getAvailableColumns } from "./definitions/columnPropagation";
 import { Tooltip } from "./components/Tooltip";
+import { generateDbtModel } from "./generators/dbtGenerator";
 
 type OperationNodeData = {
   operation: OperationDefinition;
@@ -39,6 +41,12 @@ function App() {
   const [undoDescription, setUndoDescription] = useState<string>("");
   const [redoDescription, setRedoDescription] = useState<string>("");
 
+  // Dropdown menu state
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const modelMenuRef = useRef<HTMLDivElement>(null);
+  const modelButtonRef = useRef<HTMLButtonElement>(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+
   // Finish editing model name with validation
   const finishEditingName = () => {
     const trimmedName = modelName.trim();
@@ -52,6 +60,31 @@ function App() {
     }
     setIsEditingName(false);
   };
+
+  // Initialize Model Output node if it doesn't exist
+  useEffect(() => {
+    const hasModelOutput = nodes.some(
+      (n) => n.data.operation.id === "dbt-model"
+    );
+    if (!hasModelOutput && nodes.length === 0) {
+      const modelOutputOp = OPERATION_DEFS.find((op) => op.id === "dbt-model");
+      if (modelOutputOp) {
+        const newNode: Node<OperationNodeData> = {
+          id: "model-output",
+          type: "operation",
+          position: { x: 600, y: 300 },
+          data: {
+            operation: modelOutputOp,
+            params: {
+              name: modelName,
+              materialized: "view",
+            },
+          },
+        };
+        setNodes([newNode]);
+      }
+    }
+  }, []);
 
   // Sync existing nodes with latest operation definitions (e.g. label changes)
   useEffect(() => {
@@ -260,6 +293,25 @@ function App() {
     }
   };
 
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (
+        modelMenuRef.current &&
+        !modelMenuRef.current.contains(event.target as HTMLElement) &&
+        modelButtonRef.current &&
+        !modelButtonRef.current.contains(event.target as HTMLElement)
+      ) {
+        setIsModelMenuOpen(false);
+      }
+    }
+
+    document.addEventListener("mousedown", handleClickOutside, true);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside, true);
+    };
+  }, []);
+
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -305,6 +357,13 @@ function App() {
   };
 
   const handleDeleteNode = (nodeId: string) => {
+    // Prevent deletion of Model Output node
+    const nodeToDelete = nodes.find((n) => n.id === nodeId);
+    if (nodeToDelete?.data.operation.id === "dbt-model") {
+      console.warn("Model Output node cannot be deleted");
+      return;
+    }
+
     setNodes((prev) => prev.filter((n) => n.id !== nodeId));
     setEdges((prev) =>
       prev.filter((e) => e.source !== nodeId && e.target !== nodeId)
@@ -329,6 +388,99 @@ function App() {
     nodeId: string,
     params: Record<string, unknown>
   ) => {
+    // Check if we're reducing the number of handles for a join node
+    const node = nodes.find((n) => n.id === nodeId);
+
+    // Handle join node input handles
+    if (
+      node?.data.operation.id === "join" &&
+      typeof params.inputHandles === "number"
+    ) {
+      const oldCount = (node.data.params?.inputHandles as number) || 2;
+      const newCount = params.inputHandles;
+      const removedIndex = params._removedHandleIndex as number | undefined;
+
+      // If reducing handles, remove and remap edges
+      if (newCount < oldCount && removedIndex !== undefined) {
+        setEdges((prev) =>
+          prev
+            .filter((edge) => {
+              // Filter out edges for other nodes
+              if (edge.target !== nodeId) return true;
+              const handleId = edge.targetHandle || "default";
+              if (!handleId.startsWith("input-")) return true;
+
+              const handleIndex = parseInt(handleId.split("-")[1]);
+              // Remove edge connected to the deleted handle
+              return handleIndex !== removedIndex;
+            })
+            .map((edge) => {
+              // Remap edges for handles after the removed one
+              if (edge.target !== nodeId) return edge;
+              const handleId = edge.targetHandle || "default";
+              if (!handleId.startsWith("input-")) return edge;
+
+              const handleIndex = parseInt(handleId.split("-")[1]);
+              // If handle index is after the removed one, decrement it
+              if (handleIndex > removedIndex) {
+                return {
+                  ...edge,
+                  targetHandle: `input-${handleIndex - 1}`,
+                };
+              }
+              return edge;
+            })
+        );
+      }
+    }
+
+    // Handle database node output handles
+    if (
+      node?.data.operation.id === "database" &&
+      typeof params.outputHandles === "number"
+    ) {
+      const oldCount = (node.data.params?.outputHandles as number) || 1;
+      const newCount = params.outputHandles;
+      const removedIndex = params._removedHandleIndex as number | undefined;
+
+      // If reducing handles, remove and remap edges
+      if (newCount < oldCount && removedIndex !== undefined) {
+        setEdges((prev) =>
+          prev
+            .filter((edge) => {
+              // Filter out edges for other nodes
+              if (edge.source !== nodeId) return true;
+              const handleId = edge.sourceHandle || "default";
+              if (!handleId.startsWith("output-")) return true;
+
+              const handleIndex = parseInt(handleId.split("-")[1]);
+              // Remove edge connected to the deleted handle
+              return handleIndex !== removedIndex;
+            })
+            .map((edge) => {
+              // Remap edges for handles after the removed one
+              if (edge.source !== nodeId) return edge;
+              const handleId = edge.sourceHandle || "default";
+              if (!handleId.startsWith("output-")) return edge;
+
+              const handleIndex = parseInt(handleId.split("-")[1]);
+              // If handle index is after the removed one, decrement it
+              if (handleIndex > removedIndex) {
+                return {
+                  ...edge,
+                  sourceHandle: `output-${handleIndex - 1}`,
+                };
+              }
+              return edge;
+            })
+        );
+      }
+    }
+
+    // Clean up temporary parameters before saving
+    const cleanParams = { ...params };
+    delete cleanParams._removedHandleIndex;
+
     setNodes((prev) =>
       prev.map((node) =>
         node.id === nodeId
@@ -336,7 +488,7 @@ function App() {
               ...node,
               data: {
                 ...node.data,
-                params,
+                params: cleanParams,
               },
             }
           : node
@@ -386,17 +538,49 @@ function App() {
           return;
         }
 
+        // Check if model has a Model Output node, add one if missing
+        const hasModelOutput = modelData.nodes.some(
+          (n: any) => n.data?.operation?.id === "dbt-model"
+        );
+
+        let nodesToLoad = modelData.nodes;
+        if (!hasModelOutput) {
+          const modelOutputOp = OPERATION_DEFS.find(
+            (op) => op.id === "dbt-model"
+          );
+          if (modelOutputOp) {
+            // Find the rightmost node to position Model Output to the right
+            const maxX = Math.max(
+              ...modelData.nodes.map((n: any) => n.position?.x || 0),
+              0
+            );
+            const newModelOutputNode = {
+              id: "model-output",
+              type: "operation", // Changed from "operationNode" to "operation"
+              position: { x: maxX + 400, y: 300 },
+              data: {
+                operation: modelOutputOp,
+                params: {
+                  name: modelData.modelName || file.name.replace(".json", ""),
+                  materialized: "view",
+                },
+              },
+            };
+            nodesToLoad = [...modelData.nodes, newModelOutputNode];
+          }
+        }
+
         // Restore state
-        setNodes(modelData.nodes);
+        setNodes(nodesToLoad);
         setEdges(modelData.edges);
-        setNodeCounter(modelData.nodeCounter || modelData.nodes.length);
+        setNodeCounter(modelData.nodeCounter || nodesToLoad.length);
         setModelName(modelData.modelName || file.name.replace(".json", ""));
         setSelectedNodeId(null);
 
         // Reset history with the loaded state as initial state
         setHistory([
           {
-            nodes: modelData.nodes,
+            nodes: nodesToLoad,
             edges: modelData.edges,
           },
         ]);
@@ -534,6 +718,49 @@ function App() {
           }
         }
 
+        // Update filter-builder (FilterGroup)
+        if (
+          param.type === "filter-builder" &&
+          currentValue &&
+          typeof currentValue === "object" &&
+          (currentValue as any).type === "group"
+        ) {
+          // Helper to recursively update columns in FilterGroup
+          const updateFilterGroup = (group: any): any => {
+            const newChildren = (group.children || []).map((child: any) => {
+              if (child.type === "condition") {
+                if (child.column) {
+                  const updatedCol = updateColumnRef(child.column);
+                  // If column was renamed (different name) or removed (empty string), update it
+                  if (updatedCol !== child.column) {
+                    return { ...child, column: updatedCol };
+                  }
+                }
+                return child;
+              } else if (child.type === "group") {
+                return updateFilterGroup(child);
+              }
+              return child;
+            });
+
+            // Check if children changed (shallow comparison is enough as we create new objects on change)
+            const hasChanges = newChildren.some(
+              (child: any, i: number) => child !== group.children[i]
+            );
+
+            if (hasChanges) {
+              return { ...group, children: newChildren };
+            }
+            return group;
+          };
+
+          const updatedGroup = updateFilterGroup(currentValue);
+          if (updatedGroup !== currentValue) {
+            updatedParams[param.name] = updatedGroup;
+            nodeHasChanges = true;
+          }
+        }
+
         // Update join-condition
         if (
           param.type === "join-condition" &&
@@ -623,10 +850,59 @@ function App() {
   // Ref for file input
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Generate dbt model
+  const handleGenerateDbt = async () => {
+    const result = generateDbtModel(nodes, edges, modelName);
+
+    if (result.errors.length > 0) {
+      alert(`Errors generating dbt model:\n${result.errors.join("\n")}`);
+      return;
+    }
+
+    if (result.files.length === 0) {
+      alert("No files generated");
+      return;
+    }
+
+    try {
+      // Dynamically import JSZip
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+
+      // Add all files to the zip
+      result.files.forEach((file) => {
+        zip.file(file.path, file.content);
+      });
+
+      // Generate the zip file
+      const content = await zip.generateAsync({ type: "blob" });
+
+      // Download the zip
+      const url = URL.createObjectURL(content);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${modelName
+        .replace(/\s+/g, "_")
+        .toLowerCase()}_dbt_project.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      alert(`Generated dbt project with ${result.files.length} files!`);
+    } catch (error) {
+      alert(
+        `Error creating ZIP: ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
+  };
+
   return (
     <>
       <header className="">
-        <h1 className="border-r border-gray-300 dark:border-gray-700 pr-4 shrink-0">
+        <h1 className="border-r border-gray-400 dark:border-gray-700 pr-4 shrink-0">
           dbt Flow Designer
         </h1>
 
@@ -666,9 +942,7 @@ function App() {
             content={
               <>
                 {undoDescription ? `Undo: ${undoDescription}` : "Undo"}{" "}
-                <span className="opacity-30 ml-1 text-gray-600 dark:text-gray-400">
-                  (Ctrl+Z)
-                </span>
+                <span className="opacity-50 ml-1">(Ctrl+Z)</span>
               </>
             }
           >
@@ -697,7 +971,7 @@ function App() {
             content={
               <>
                 {redoDescription ? `Redo: ${redoDescription}` : "Redo"}{" "}
-                <span className="opacity-30 ml-1 ">(Ctrl+Shift+Z)</span>
+                <span className="opacity-50 ml-1 ">(Ctrl+Shift+Z)</span>
               </>
             }
           >
@@ -724,17 +998,128 @@ function App() {
         </div>
 
         <div className="flex flex-row gap-4">
-          <button
-            className="normal-button w-30 p-2 rounded-full "
-            onClick={() => fileInputRef.current?.click()}
-          >
-            Load
-          </button>
+          {/* Dropdown Menu "Model" */}
+          <div className="relative">
+            <button
+              ref={modelButtonRef}
+              className="normal-button w-30 p-2 rounded-full"
+              onClick={() => {
+                if (!isModelMenuOpen && modelButtonRef.current) {
+                  const rect = modelButtonRef.current.getBoundingClientRect();
+                  setMenuPosition({
+                    top: rect.bottom + 8,
+                    left: rect.right - 200, // Align right edge
+                  });
+                }
+                setIsModelMenuOpen(!isModelMenuOpen);
+              }}
+            >
+              Model
+              <svg
+                className={`w-4 h-4 ml-2 inline transition-transform ${
+                  isModelMenuOpen ? "rotate-180" : ""
+                }`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M19 9l-7 7-7-7"
+                />
+              </svg>
+            </button>
+          </div>
+
+          {/* Portal for dropdown content */}
+          {isModelMenuOpen &&
+            createPortal(
+              <div
+                ref={modelMenuRef}
+                className="fixed panel rounded-2xl min-w-[200px] z-9998 p-1.5 flex flex-col gap-0.5"
+                style={{
+                  top: `${menuPosition.top}px`,
+                  left: `${menuPosition.left}px`,
+                }}
+              >
+                <button
+                  className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/60 dark:hover:bg-gray-500/30 transition-colors flex items-center gap-2 text-sm font-medium"
+                  onClick={() => {
+                    fileInputRef.current?.click();
+                    setIsModelMenuOpen(false);
+                  }}
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"
+                    />
+                  </svg>
+                  Load
+                </button>
+                <button
+                  className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/60 dark:hover:bg-gray-500/30 transition-colors flex items-center gap-2 text-sm font-medium"
+                  onClick={() => {
+                    handleSaveModel();
+                    setIsModelMenuOpen(false);
+                  }}
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"
+                    />
+                  </svg>
+                  Save
+                </button>
+                <button
+                  className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/60 dark:hover:bg-gray-500/30 transition-colors flex items-center gap-2 text-sm font-medium"
+                  onClick={() => {
+                    handleGenerateDbt();
+                    setIsModelMenuOpen(false);
+                  }}
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
+                    />
+                  </svg>
+                  Export dbt
+                </button>
+              </div>,
+              document.body
+            )}
+
+          {/* Test Button */}
           <button
             className="highlight-button w-30 p-2 rounded-full"
-            onClick={handleSaveModel}
+            onClick={() => alert("Test functionality coming soon!")}
           >
-            Save
+            Test
           </button>
         </div>
       </header>
@@ -756,6 +1141,7 @@ function App() {
           setNodes={setNodes}
           setEdges={setEdges}
           onSelectNode={handleSelectNode}
+          onSaveParams={handleSaveParams}
           selectedNodeId={selectedNodeId}
           onNodeDragStart={(_, node) => {
             movingNodes.current.add(node.id);

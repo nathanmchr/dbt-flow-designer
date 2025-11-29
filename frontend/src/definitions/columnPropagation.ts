@@ -33,13 +33,21 @@ export function getAvailableColumns(
     const sourceNode = nodes.find((node) => node.id === edge.source);
     if (!sourceNode) continue;
 
-    // If the source node is a manual source, get its defined columns
-    if (sourceNode.data.operation.id === "source-manual") {
+    // If the source node is a manual source or table, get its defined columns
+    if (
+      sourceNode.data.operation.id === "source-manual" ||
+      sourceNode.data.operation.id === "source-table"
+    ) {
       const columns = sourceNode.data.params?.columns as
-        | ColumnDefinition[]
+        | Array<{ name: string; type: string; alias?: string }>
         | undefined;
       if (columns && Array.isArray(columns)) {
-        allColumns.push(...columns);
+        // Use alias as name if present
+        const effectiveColumns = columns.map((col) => ({
+          name: col.alias || col.name,
+          type: col.type,
+        }));
+        allColumns.push(...effectiveColumns);
       }
     } else if (sourceNode.data.operation.id === "select") {
       // For SELECT nodes, only propagate the selected columns

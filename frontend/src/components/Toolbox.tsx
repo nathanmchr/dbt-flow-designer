@@ -4,24 +4,22 @@ import {
   type OperationDefinition,
 } from "../definitions/operations";
 import ToolboxNode from "./nodes/ToolboxNode";
-import { Tooltip } from "./Tooltip";
 
 interface ToolboxProps {
   onAddNode: (operation: OperationDefinition) => void;
 }
 
 function Toolbox({ onAddNode }: ToolboxProps) {
-  // Grouper les opérations par catégorie
+  // Grouper les opérations par catégorie (exclure Model Output)
   const categories = useMemo(
     () =>
-      OPERATION_DEFS.reduce<Record<string, OperationDefinition[]>>(
-        (acc, op) => {
-          if (!acc[op.category]) acc[op.category] = [];
-          acc[op.category].push(op);
-          return acc;
-        },
-        {}
-      ),
+      OPERATION_DEFS.filter((op) => op.id !== "dbt-model").reduce<
+        Record<string, OperationDefinition[]>
+      >((acc, op) => {
+        if (!acc[op.category]) acc[op.category] = [];
+        acc[op.category].push(op);
+        return acc;
+      }, {}),
     []
   );
 
@@ -117,7 +115,7 @@ function Toolbox({ onAddNode }: ToolboxProps) {
       {(!isOpen || isClosing) && (
         <button
           onClick={handleOpenToolbox}
-          className="fixed left-0 top-34.5 -translate-y-1/2 z-50 p-3 rounded-r-xl bg-white/50 dark:bg-gray-800/50 backdrop-blur-lg border border-l-0 border-gray-300 dark:border-gray-700 shadow-lg dark:shadow-black/20 hover:bg-white/70 dark:hover:bg-gray-700/50 transition-all"
+          className="normal-button fixed left-0 top-34.5 -translate-y-1/2 z-50 p-3 rounded-r-2xl rounded-l-none border-l-transparent"
           style={{
             animation: isClosing
               ? "slideOutToLeft 200ms ease-in both"
@@ -125,7 +123,7 @@ function Toolbox({ onAddNode }: ToolboxProps) {
           }}
         >
           <svg
-            className="w-5 h-5 text-gray-600 dark:text-gray-400"
+            className="w-5 h-5"
             fill="none"
             viewBox="0 0 24 24"
             stroke="currentColor"
@@ -153,7 +151,7 @@ function Toolbox({ onAddNode }: ToolboxProps) {
           }}
         />
         <div className="shrink-0 flex justify-between items-center px-4 pt-4">
-          <p className="pb-2 border-b text-xs font-bold uppercase tracking-[0.2em] border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400">
+          <p className="pb-2 border-b text-xs font-bold uppercase tracking-[0.2em] border-gray-400 dark:border-gray-700 text-gray-500 dark:text-gray-400">
             Toolbox
           </p>
           <button
@@ -228,9 +226,7 @@ function Toolbox({ onAddNode }: ToolboxProps) {
                             : "opacity-0 duration-150"
                         }`}
                       >
-                        <Tooltip content={op.description}>
-                          <ToolboxNode operation={op} onAddNode={onAddNode} />
-                        </Tooltip>
+                        <ToolboxNode operation={op} onAddNode={onAddNode} />
                       </li>
                     ))}
                   </ul>

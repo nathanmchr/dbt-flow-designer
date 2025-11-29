@@ -58,7 +58,7 @@ const ParamTooltip = ({ content }: { content: React.ReactNode }) => {
   return (
     <>
       <button
-        className="flex w-5 h-5 p-1 rounded-full justify-center items-center text-sm font-bold cursor-help"
+        className="normal-button flex w-5 h-5 p-1 justify-center items-center cursor-help"
         onMouseEnter={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           setPosition({
@@ -418,10 +418,10 @@ function Inspector({
       ) : (
         <>
           <div className="shrink-0 flex justify-between items-center px-4 pt-4">
-            <p className="pb-2 border-b text-xs font-bold uppercase tracking-[0.2em] border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400">
+            <p className="pb-2 border-b text-xs font-bold uppercase tracking-[0.2em] border-gray-400 dark:border-gray-700 text-gray-500 dark:text-gray-400">
               Parameters
             </p>
-            <button onClick={onClose} className="rounded-full p-1">
+            <button onClick={onClose} className="normal-button p-1">
               <svg
                 className="w-4 h-4"
                 fill="none"
@@ -437,7 +437,7 @@ function Inspector({
               </svg>
             </button>
           </div>
-          <div className="overflow-y-auto flex-1 mask-gradient-both px-4 pr-3 -mr-3 pb-6 -mb-2">
+          <div className="overflow-y-auto flex-1 mask-gradient-both px-4 -mr-3 pb-6 -mb-2">
             <div className="pt-4 pb-4 space-y-4">
               <div>
                 <h2 className="text-lg font-semibold">
@@ -886,6 +886,7 @@ function Inspector({
                           (formValues[param.name] as Array<{
                             name: string;
                             type: string;
+                            alias?: string;
                           }>) || []
                         ).map((column, index) => (
                           <div
@@ -894,7 +895,6 @@ function Inspector({
                           >
                             <div className="flex-1 space-y-2">
                               <input
-                                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm backdrop-blur-sm"
                                 type="text"
                                 placeholder="Column name"
                                 value={column.name}
@@ -903,6 +903,7 @@ function Inspector({
                                     ...(formValues[param.name] as Array<{
                                       name: string;
                                       type: string;
+                                      alias?: string;
                                     }>),
                                   ];
                                   newColumns[index] = {
@@ -912,14 +913,33 @@ function Inspector({
                                   handleChange(param, newColumns);
                                 }}
                               />
+                              <input
+                                type="text"
+                                placeholder="Alias (optional)"
+                                value={column.alias || ""}
+                                onChange={(event) => {
+                                  const newColumns = [
+                                    ...(formValues[param.name] as Array<{
+                                      name: string;
+                                      type: string;
+                                      alias?: string;
+                                    }>),
+                                  ];
+                                  newColumns[index] = {
+                                    ...newColumns[index],
+                                    alias: event.target.value,
+                                  };
+                                  handleChange(param, newColumns);
+                                }}
+                              />
                               <select
-                                className="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm backdrop-blur-sm"
                                 value={column.type}
                                 onChange={(event) => {
                                   const newColumns = [
                                     ...(formValues[param.name] as Array<{
                                       name: string;
                                       type: string;
+                                      alias?: string;
                                     }>),
                                   ];
                                   newColumns[index] = {
@@ -939,19 +959,20 @@ function Inspector({
                             </div>
                             <button
                               type="button"
-                              className="delete-button"
+                              className="delete-button w-6 h-6 flex justify-center items-center"
                               onClick={() => {
                                 const newColumns = (
                                   formValues[param.name] as Array<{
                                     name: string;
                                     type: string;
+                                    alias?: string;
                                   }>
                                 ).filter((_, i) => i !== index);
                                 handleChange(param, newColumns);
                               }}
                             >
                               <svg
-                                className="w-5 h-5"
+                                className="w-4 h-4"
                                 fill="none"
                                 viewBox="0 0 24 24"
                                 stroke="currentColor"
@@ -974,6 +995,7 @@ function Inspector({
                               (formValues[param.name] as Array<{
                                 name: string;
                                 type: string;
+                                alias?: string;
                               }>) || [];
                             handleChange(param, [
                               ...currentColumns,
@@ -1030,7 +1052,6 @@ function Inspector({
                                         Column
                                       </label>
                                       <input
-                                        className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
                                         type="text"
                                         value={col.original}
                                         readOnly
@@ -1041,7 +1062,6 @@ function Inspector({
                                         Alias (optional)
                                       </label>
                                       <input
-                                        className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-3 py-2 text-sm"
                                         type="text"
                                         placeholder="Leave empty to use original name"
                                         value={col.alias || ""}
@@ -1104,7 +1124,6 @@ function Inspector({
                             Column
                           </label>
                           <input
-                            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
                             type="text"
                             placeholder="Click a column above to select"
                             value={
@@ -1127,7 +1146,6 @@ function Inspector({
                               Operator
                             </label>
                             <select
-                              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
                               value={
                                 (
                                   formValues[param.name] as {
@@ -1173,7 +1191,6 @@ function Inspector({
                               Value
                             </label>
                             <input
-                              className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
                               type="text"
                               placeholder="Enter value"
                               value={
@@ -1314,7 +1331,6 @@ function Inspector({
                             Operator
                           </label>
                           <select
-                            className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 text-sm"
                             value={
                               (
                                 formValues[param.name] as {
@@ -1351,7 +1367,6 @@ function Inspector({
                       </div>
                     ) : param.type === "column-select" ? (
                       <input
-                        className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2 w-full"
                         type="text"
                         placeholder={
                           availableColumns.length === 0
@@ -1364,7 +1379,6 @@ function Inspector({
                     ) : param.type === "adapter-selector" ? (
                       <div className="space-y-4">
                         <select
-                          className="w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2"
                           value={
                             ((formValues[param.name] as Record<string, unknown>)
                               ?.type as string) || ""
@@ -1394,7 +1408,7 @@ function Inspector({
                           if (!selectedAdapter) return null;
 
                           return (
-                            <div className="space-y-3 p-4 bg-gray-50 dark:bg-gray-900/30 rounded-xl border border-gray-200 dark:border-gray-700">
+                            <div className="card space-y-3 p-4">
                               {selectedAdapter.params.map((field) => (
                                 <div key={field.name}>
                                   <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
@@ -1407,7 +1421,6 @@ function Inspector({
                                   </label>
                                   {field.type === "select" ? (
                                     <select
-                                      className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
                                       value={
                                         (currentConfig[field.name] as string) ||
                                         ""
@@ -1435,7 +1448,6 @@ function Inspector({
                                           ? "number"
                                           : "text"
                                       }
-                                      className="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-2 text-sm"
                                       value={
                                         (currentConfig[field.name] as string) ||
                                         ""
@@ -1456,7 +1468,6 @@ function Inspector({
                       </div>
                     ) : param.type === "select" ? (
                       <select
-                        className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2"
                         value={(formValues[param.name] as string) ?? ""}
                         onChange={(event) =>
                           handleChange(param, event.target.value)
@@ -1481,7 +1492,6 @@ function Inspector({
                       </div>
                     ) : (
                       <input
-                        className="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2"
                         type={param.type === "number" ? "number" : "text"}
                         placeholder={
                           param.type === "column-list"
@@ -1500,20 +1510,22 @@ function Inspector({
               </div>
             </div>
           </div>
-          <div className="shrink-0 pb-4 flex flex-row-reverse gap-2 px-4">
+          <div className="shrink-0 pb-4 flex flex-row-reverse gap-2 py-1 px-4">
             <button
-              className="highlight-button rounded-full px-4 py-1w-20"
+              className="highlight-button rounded-full px-4 py-1 w-20"
               type="button"
               onClick={handleSave}
             >
               Save
             </button>
-            <button
-              className="delete-button px-4 py-1"
-              onClick={() => renderedNode && onDelete(renderedNode.id)}
-            >
-              Delete
-            </button>
+            {renderedNode?.operation.id !== "dbt-model" && (
+              <button
+                className="delete-button px-4 py-1"
+                onClick={() => renderedNode && onDelete(renderedNode.id)}
+              >
+                Delete
+              </button>
+            )}
           </div>
         </>
       )}
