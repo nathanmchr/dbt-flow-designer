@@ -1,8 +1,10 @@
 import type { Node, Edge } from "reactflow";
 import type { OperationDefinition } from "../definitions/operations";
+import { PipelineOptimizer } from "./pipelineOptimizer";
+import { generateCombinedSQL } from "./cteHelpers";
 
 // Type pour les données des nodes
-type OperationNodeData = {
+export type OperationNodeData = {
   operation: OperationDefinition;
   params: Record<string, any>;
 };
@@ -20,7 +22,7 @@ export interface DbtModelOutput {
 }
 
 // Type pour un nœud classifié
-type ClassifiedNode = {
+export type ClassifiedNode = {
   node: Node<OperationNodeData>;
   layer: "staging" | "intermediate" | "mart";
   modelName: string;
@@ -28,6 +30,157 @@ type ClassifiedNode = {
   dependencies: string[]; // IDs des nœuds parents
   columns: string[]; // Colonnes de sortie du modèle
 };
+
+// Type pour un groupe de nœuds (approche hybride)
+export type NodeGroup = {
+  nodes: Node<OperationNodeData>[];
+  groupName: string;
+  layer: "staging" | "intermediate" | "mart";
+  filePath: string;
+  isCombined: boolean; // true si multiple nœuds groupés
+  mainOperation: string; // L'opération principale du groupe
+  dependencies: string[]; // IDs des nœuds parents externes au groupe
+  columns: string[]; // Colonnes de sortie du groupe
+};
+
+// Type pour une CTE
+export type CTE = {
+  name: string;
+  sql: string;
+  node: Node<OperationNodeData>;
+  columns: string[];
+};
+
+// Options de génération
+export interface GeneratorOptions {
+  optimizePipeline?: boolean; // true = approche hybride, false = 1 fichier/opération
+}
+
+/**
+ * Column Type Registry - Collecte les types de colonnes depuis tous les nodes source
+ */
+function buildColumnTypeRegistry(
+  nodes: Node<OperationNodeData>[]
+): Map<string, string> {
+  const registry = new Map<string, string>();
+
+  nodes.forEach((node) => {
+    const opId = node.data.operation.id;
+
+    // Collecter depuis les source nodes (database, source-table, source-manual)
+    if (
+      opId === "database" ||
+      opId === "source-table" ||
+      opId === "source-manual"
+    ) {
+      const columns = node.data.params?.columns as
+        | Array<{
+            name: string;
+            type: string;
+            alias?: string;
+          }>
+        | undefined;
+
+      if (columns && Array.isArray(columns)) {
+        columns.forEach((col) => {
+          // Enregistrer le type de la colonne
+          registry.set(col.name, col.type);
+
+          // Si alias existe, enregistrer aussi
+          if (col.alias && col.alias.trim()) {
+            registry.set(col.alias, col.type);
+          }
+        });
+      }
+    }
+  });
+
+  return registry;
+}
+
+/**
+ * Formate une valeur selon le type de colonne (schema-based)
+ */
+function formatValueByColumnType(
+  column: string,
+  value: any,
+  columnTypes: Map<string, string>
+): string | number | boolean {
+  const type = columnTypes.get(column);
+
+  // Si type inconnu, fallback sur comportement intelligent
+  if (!type) {
+    return smartFormatValue(value);
+  }
+
+  // Types numériques → Sans quotes
+  if (
+    type === "INTEGER" ||
+    type === "FLOAT" ||
+    type === "NUMERIC" ||
+    type === "DECIMAL" ||
+    type === "BIGINT"
+  ) {
+    if (typeof value === "number") {
+      return value;
+    }
+    if (typeof value === "string") {
+      const num = parseFloat(value);
+      return isNaN(num) ? `'${value}'` : num;
+    }
+    return value;
+  }
+
+  // Booleans → Sans quotes
+  if (type === "BOOLEAN" || type === "BOOL") {
+    if (typeof value === "boolean") {
+      return value;
+    }
+    // Convert string to boolean
+    if (value === "true" || value === "1" || value === 1) return true;
+    if (value === "false" || value === "0" || value === 0) return false;
+    return value;
+  }
+
+  // Dates et Timestamps → Avec quotes
+  if (type === "DATE" || type === "TIMESTAMP" || type === "DATETIME") {
+    return `'${value}'`;
+  }
+
+  // VARCHAR et autres types string → Avec quotes
+  return `'${value}'`;
+}
+
+/**
+ * Fallback intelligent si type de colonne inconnu
+ */
+function smartFormatValue(value: any): string | number | boolean {
+  if (typeof value === "number") {
+    return value;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string") {
+    // Déjà quoté?
+    if (value.startsWith("'") && value.endsWith("'")) {
+      return value;
+    }
+
+    // Nombre?
+    const num = parseFloat(value);
+    if (!isNaN(num) && value.trim() === num.toString()) {
+      return num;
+    }
+
+    // String
+    return `'${value}'`;
+  }
+
+  return value;
+}
 
 /**
  * Récupère les colonnes de sortie d'un modèle
@@ -182,8 +335,12 @@ function getModelColumns(
 export function generateDbtModel(
   nodes: Node<OperationNodeData>[],
   edges: Edge[],
-  projectName: string
+  projectName: string,
+  options: GeneratorOptions = {}
 ): DbtModelOutput {
+  // Approche hybride activée par défaut - Groupe les opérations simples en CTEs
+  const { optimizePipeline = true } = options;
+
   const files: GeneratedFile[] = [];
   const errors: string[] = [];
 
@@ -200,6 +357,9 @@ export function generateDbtModel(
       errors.push("No Model Output node found");
       return { files, errors };
     }
+
+    // ✅ Construire le registre des types de colonnes
+    const columnTypes = buildColumnTypeRegistry(nodes);
 
     // 2. Construire le graphe de dépendances
     const dependencyGraph = buildDependencyGraph(edges);
@@ -249,20 +409,60 @@ export function generateDbtModel(
       }
     });
 
-    // 5. Générer un fichier SQL pour chaque nœud
-    classifiedNodes.forEach((cn) => {
-      const sql = generateSQLForNode(
-        cn,
-        classifiedNodes,
-        dependencyGraph,
-        nodes,
-        edges
-      );
-      files.push({
-        path: cn.filePath,
-        content: sql,
+    // 5. Générer les fichiers SQL
+    if (optimizePipeline) {
+      // APPROCHE HYBRIDE - Grouper les nœuds simples
+      const optimizer = new PipelineOptimizer(dependencyGraph);
+      const optimizedGroups = optimizer.optimizePipeline(classifiedNodes);
+
+      optimizedGroups.forEach((group) => {
+        let sql: string;
+
+        if (group.isCombined) {
+          // Groupe de plusieurs nœuds → générer avec CTEs
+          sql = generateCombinedSQL(
+            group,
+            optimizedGroups,
+            classifiedNodes,
+            columnTypes
+          );
+        } else {
+          // Nœud unique → utiliser la logique classique
+          const cn = classifiedNodes.find(
+            (c) => c.node.id === group.nodes[0].id
+          )!;
+          sql = generateSQLForNode(
+            cn,
+            classifiedNodes,
+            dependencyGraph,
+            nodes,
+            edges,
+            columnTypes
+          );
+        }
+
+        files.push({
+          path: group.filePath,
+          content: sql,
+        });
       });
-    });
+    } else {
+      // APPROCHE CLASSIQUE - 1 fichier par nœud
+      classifiedNodes.forEach((cn) => {
+        const sql = generateSQLForNode(
+          cn,
+          classifiedNodes,
+          dependencyGraph,
+          nodes,
+          edges,
+          columnTypes
+        );
+        files.push({
+          path: cn.filePath,
+          content: sql,
+        });
+      });
+    }
 
     // 6. Générer schema.yml global
     const schemaYml = generateSchemaYml(classifiedNodes, projectName);
@@ -487,7 +687,8 @@ function generateSQLForNode(
   allClassified: ClassifiedNode[],
   dependencyGraph: Map<string, string[]>,
   nodes: Node<OperationNodeData>[],
-  edges: Edge[]
+  edges: Edge[],
+  columnTypes: Map<string, string>
 ): string {
   const { node, layer, modelName, dependencies } = classified;
   const opId = node.data.operation.id;
@@ -506,12 +707,6 @@ function generateSQLForNode(
   // Header comment
   sql += `{#\n  Model: ${modelName}\n  Layer: ${layer}\n  Operation: ${node.data.operation.label}\n#}\n\n`;
 
-  // Config block
-  if (layer === "mart") {
-    const materializationType = params.materialization || "view";
-    sql += `{{ config(\n  materialized='${materializationType}'\n) }}\n\n`;
-  }
-
   switch (opId) {
     case "source-table":
       // Trouver le nœud Database parent
@@ -526,7 +721,10 @@ function generateSQLForNode(
       return sql + generateSelectSQL(parentModels, params);
 
     case "filter":
-      return sql + generateFilterSQL(parentModels, params, classified.columns);
+      return (
+        sql +
+        generateFilterSQL(parentModels, params, classified.columns, columnTypes)
+      );
 
     case "join":
       return (
@@ -644,7 +842,8 @@ function generateSelectSQL(
 function generateFilterSQL(
   parentModels: string[],
   params: Record<string, any>,
-  columns: string[]
+  columns: string[],
+  columnTypes: Map<string, string>
 ): string {
   const fromModel = parentModels[0] || "upstream";
 
@@ -661,7 +860,7 @@ function generateFilterSQL(
 
   // Handle FilterGroup structure
   if (params.condition) {
-    const whereClause = buildFilterSQL(params.condition);
+    const whereClause = buildFilterSQL(params.condition, columnTypes);
     if (whereClause) {
       sql += `\nWHERE ${whereClause}`;
     }
@@ -673,18 +872,22 @@ function generateFilterSQL(
 /**
  * Helper pour construire le SQL de filtres récursifement
  */
-function buildFilterSQL(node: any): string {
+function buildFilterSQL(node: any, columnTypes: Map<string, string>): string {
   if (!node) return "";
 
   if (node.type === "condition") {
     if (!node.column) return "";
+
+    // Handle NULL operators
     if (node.operator === "IS NULL" || node.operator === "IS NOT NULL") {
       return `${node.column} ${node.operator}`;
     }
+
     const val = node.value;
-    const isNumber = !isNaN(parseFloat(val)) && isFinite(val);
-    const isQuoted = val.startsWith("'") && val.endsWith("'");
-    const finalVal = !isNumber && !isQuoted ? `'${val}'` : val;
+
+    // ✅ Use schema-based formatting
+    const finalVal = formatValueByColumnType(node.column, val, columnTypes);
+
     return `${node.column} ${node.operator} ${finalVal}`;
   }
 
@@ -693,7 +896,7 @@ function buildFilterSQL(node: any): string {
 
     const parts: string[] = [];
     for (let i = 0; i < node.children.length; i++) {
-      const childSQL = buildFilterSQL(node.children[i]);
+      const childSQL = buildFilterSQL(node.children[i], columnTypes);
       if (childSQL) {
         if (i > 0) {
           const op = node.operators?.[i - 1] || "AND";
@@ -910,17 +1113,51 @@ function generateModelDescription(node: ClassifiedNode): string {
   const opId = node.node.data.operation.id;
   const params = node.node.data.params || {};
   const deps = node.dependencies;
+  const timestamp = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+
+  // Helper to get upstream model names
+  const getUpstreamInfo = () => {
+    if (deps.length === 0) return "";
+    if (deps.length === 1)
+      return `\n  Source: ${node.modelName.replace(
+        /^(int|fct|stg)_/,
+        ""
+      )}_upstream`;
+    return `\n  Sources: ${deps.length} upstream models`;
+  };
+
+  // Helper to extract and format filter conditions
+  const formatFilterConditions = (condition: any, depth = 0): string[] => {
+    const conditions: string[] = [];
+
+    if (!condition) return conditions;
+
+    if (condition.type === "condition") {
+      const { column, operator, value } = condition;
+      conditions.push(`${column} ${operator} ${value}`);
+    } else if (condition.type === "group" && condition.children) {
+      condition.children.forEach((child: any, i: number) => {
+        const childConditions = formatFilterConditions(child, depth + 1);
+        conditions.push(...childConditions);
+      });
+    }
+
+    return conditions;
+  };
 
   switch (opId) {
     case "filter": {
       const condition = params.condition;
-      if (condition && condition.children && condition.children.length > 0) {
-        const numConditions = condition.children.length;
-        return `Filtered data with ${numConditions} condition${
-          numConditions > 1 ? "s" : ""
-        }`;
+      if (condition) {
+        const conditions = formatFilterConditions(condition);
+        if (conditions.length > 0) {
+          const conditionsList = conditions.map((c) => `  - ${c}`).join("\n");
+          return `Filtered data with ${conditions.length} condition${
+            conditions.length > 1 ? "s" : ""
+          }:\n${conditionsList}${getUpstreamInfo()}\n  \n  Generated: ${timestamp}`;
+        }
       }
-      return "Filtered data";
+      return `Filtered data${getUpstreamInfo()}\n  Generated: ${timestamp}`;
     }
 
     case "join": {
@@ -928,48 +1165,102 @@ function generateModelDescription(node: ClassifiedNode): string {
       const joinCond = params.on as
         | { leftColumn?: string; rightColumn?: string }
         | undefined;
+
+      let desc = `${joinType} join`;
+
       if (joinCond?.leftColumn && joinCond?.rightColumn) {
-        return `${joinType} joined on ${joinCond.leftColumn} = ${joinCond.rightColumn}`;
+        desc += `\n  Condition: ${joinCond.leftColumn} = ${joinCond.rightColumn}`;
       }
-      return `${joinType} joined data`;
+
+      if (deps.length === 2) {
+        desc += `\n  Left: upstream model 1`;
+        desc += `\n  Right: upstream model 2`;
+      }
+
+      desc += `\n  \n  Generated: ${timestamp}`;
+      return desc;
     }
 
     case "group-by": {
       const groupCols = params.columns as string | undefined;
-      const aggs = params.aggregations as string | undefined;
+      const aggs = params.aggregations as any[] | undefined;
+
+      let desc = "Aggregated data";
+
       if (groupCols) {
         const cols = groupCols
           .split(",")
           .map((c) => c.trim())
-          .join(", ");
-        if (aggs) {
-          return `Grouped by ${cols} with aggregations: ${aggs}`;
+          .filter(Boolean);
+
+        if (cols.length > 0) {
+          desc = `Grouped by:\n  - ` + cols.join("\n  - ");
         }
-        return `Grouped by ${cols}`;
       }
-      return "Aggregated data";
+
+      if (aggs && Array.isArray(aggs) && aggs.length > 0) {
+        desc += `\n  \n  Aggregations:`;
+        aggs.forEach((agg) => {
+          if (agg.function && agg.column) {
+            desc += `\n  - ${agg.function}(${agg.column})`;
+            if (agg.alias) desc += ` as ${agg.alias}`;
+          }
+        });
+      }
+
+      desc += `${getUpstreamInfo()}\n  Generated: ${timestamp}`;
+      return desc;
     }
 
     case "select": {
-      const columns = params.columns as Array<{ original: string }> | undefined;
+      const columns = params.columns as
+        | Array<{ original: string; alias?: string }>
+        | undefined;
+
       if (columns && columns.length > 0) {
-        return `Selected ${columns.length} column${
+        const colList = columns
+          .slice(0, 10) // Limit to first 10 to avoid too long descriptions
+          .map((col) => {
+            if (col.alias && col.alias !== col.original) {
+              return `  - ${col.original} → ${col.alias}`;
+            }
+            return `  - ${col.original}`;
+          })
+          .join("\n");
+
+        let desc = `Selected ${columns.length} column${
           columns.length > 1 ? "s" : ""
-        }`;
+        }:\n${colList}`;
+
+        if (columns.length > 10) {
+          desc += `\n  - ... and ${columns.length - 10} more`;
+        }
+
+        desc += `${getUpstreamInfo()}\n  Generated: ${timestamp}`;
+        return desc;
       }
-      return "Selected columns";
+      return `Selected columns${getUpstreamInfo()}\n  Generated: ${timestamp}`;
     }
 
-    case "union":
-      return `Union of ${deps.length} datasets`;
+    case "union": {
+      return `Union of ${deps.length} datasets\n  Combines all rows from upstream models\n  \n  Generated: ${timestamp}`;
+    }
 
     case "dbt-model": {
       const modelName = params.name || "output";
-      return `Final ${modelName} model`;
+      return `Final output model: ${modelName}\n  Mart layer model for analytics\n  ${getUpstreamInfo()}\n  Generated: ${timestamp}`;
+    }
+
+    case "source-table":
+    case "source-manual": {
+      const tableName = params.table || params.name || "source";
+      return `Source table: ${tableName}\n  Raw data from source system\n  Layer: staging\n  \n  Generated: ${timestamp}`;
     }
 
     default:
-      return `${node.node.data.operation.label} transformation`;
+      return `${
+        node.node.data.operation.label
+      } transformation${getUpstreamInfo()}\n  Generated: ${timestamp}`;
   }
 }
 
@@ -992,7 +1283,14 @@ function generateSchemaYml(
       const description = generateModelDescription(cn);
 
       let entry = `  - name: ${cn.modelName}\n`;
-      entry += `    description: "${description}"\n`;
+      // Use YAML literal block style (|) for multiline descriptions
+      entry += `    description: |\n`;
+      // Indent each line of the description by 6 spaces (4 for description + 2 for | content)
+      const descriptionLines = description.split("\n");
+      descriptionLines.forEach((line) => {
+        entry += `      ${line}\n`;
+      });
+
       entry += `    columns:\n`;
 
       // Document all columns

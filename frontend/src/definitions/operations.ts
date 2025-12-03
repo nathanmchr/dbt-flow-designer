@@ -217,8 +217,7 @@ export const OPERATION_DEFS: OperationDefinition[] = [
   {
     id: "dbt-model",
     label: "Model Output",
-    description:
-      "Marks the result as a dbt model with a given materialization and target database.",
+    description: "Marks the result as a dbt model.",
     category: "output",
     inputs: 1,
     outputs: 0,
@@ -227,26 +226,6 @@ export const OPERATION_DEFS: OperationDefinition[] = [
         name: "name",
         label: "Model Name",
         type: "string",
-        required: true,
-      },
-      {
-        name: "materialized",
-        label: "Materialization",
-        type: "select",
-        options: ["view", "table", "incremental"],
-        required: true,
-      },
-      {
-        name: "targetDatabase",
-        label: "Target Database",
-        type: "select",
-        options: [
-          "PostgreSQL",
-          "Snowflake",
-          "BigQuery",
-          "Redshift",
-          "Databricks",
-        ],
         required: true,
       },
     ],
