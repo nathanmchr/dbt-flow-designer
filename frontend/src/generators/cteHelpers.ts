@@ -6,11 +6,21 @@ import type {
   CTE,
 } from "./dbtGenerator";
 
+// Type for filter nodes in the filter tree structure
+interface FilterNode {
+  type: "group" | "condition";
+  children?: FilterNode[];
+  operators?: string[];
+  column?: string;
+  operator?: string;
+  value?: string | number | boolean;
+}
+
 // Import the type-safe formatting function from dbtGenerator
 // Note: We're using a simplified inline version to avoid circular dependency
 function formatValueByType(
   column: string,
-  value: any,
+  value: unknown,
   columnTypes: Map<string, string>
 ): string | number | boolean {
   const type = columnTypes.get(column);
@@ -24,7 +34,8 @@ function formatValueByType(
       if (!isNaN(num) && value.trim() === num.toString()) return num;
       return `'${value}'`;
     }
-    return value;
+    // Fallback for other types
+    return `'${String(value)}'`;
   }
 
   // Use schema-based formatting
@@ -36,8 +47,8 @@ function formatValueByType(
     type === "BIGINT"
   ) {
     if (typeof value === "number") return value;
-    const num = parseFloat(value);
-    return isNaN(num) ? `'${value}'` : num;
+    const num = typeof value === "string" ? parseFloat(value) : NaN;
+    return isNaN(num) ? `'${String(value)}'` : num;
   }
 
   if (type === "BOOLEAN" || type === "BOOL") {
@@ -48,14 +59,17 @@ function formatValueByType(
   }
 
   // Dates and strings → with quotes
-  return `'${value}'`;
+  return `'${String(value)}'`;
 }
 
 /**
  * Build SQL Helper - needed for filter conditions
  * This is a simplified version copied from dbtGenerator to avoid circular dependencies
  */
-function buildFilterSQL(node: any, columnTypes: Map<string, string>): string {
+function buildFilterSQL(
+  node: FilterNode | null | undefined,
+  columnTypes: Map<string, string>
+): string {
   if (!node) return "";
 
   if (node.type === "group") {
@@ -135,7 +149,7 @@ export function generateCTEName(
 export function generateCTEBody(
   node: Node<OperationNodeData>,
   previousCTE: string | null,
-  group: NodeGroup,
+  _group: NodeGroup,
   allGroups: NodeGroup[],
   classifiedNodes: ClassifiedNode[],
   columnTypes: Map<string, string>
@@ -175,7 +189,7 @@ export function generateCTEBody(
  */
 function generateFilterCTEBody(
   fromRef: string,
-  params: Record<string, any>,
+  params: Record<string, unknown>,
   columns: string[],
   columnTypes: Map<string, string>
 ): string {
@@ -192,7 +206,10 @@ function generateFilterCTEBody(
 
   // Condition WHERE
   if (params.condition) {
-    const whereClause = buildFilterSQL(params.condition, columnTypes);
+    const whereClause = buildFilterSQL(
+      params.condition as FilterNode,
+      columnTypes
+    );
     if (whereClause) {
       sql += `\nWHERE ${whereClause}`;
     }
@@ -206,7 +223,7 @@ function generateFilterCTEBody(
  */
 function generateSelectCTEBody(
   fromRef: string,
-  params: Record<string, any>,
+  _params: Record<string, unknown>,
   columns: string[]
 ): string {
   let sql = "SELECT\n";

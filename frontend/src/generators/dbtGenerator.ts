@@ -6,7 +6,7 @@ import { generateCombinedSQL } from "./cteHelpers";
 // Type pour les données des nodes
 export type OperationNodeData = {
   operation: OperationDefinition;
-  params: Record<string, any>;
+  params: Record<string, unknown>;
 };
 
 // Type pour les fichiers générés
@@ -103,7 +103,7 @@ function buildColumnTypeRegistry(
  */
 function formatValueByColumnType(
   column: string,
-  value: any,
+  value: unknown,
   columnTypes: Map<string, string>
 ): string | number | boolean {
   const type = columnTypes.get(column);
@@ -154,7 +154,7 @@ function formatValueByColumnType(
 /**
  * Fallback intelligent si type de colonne inconnu
  */
-function smartFormatValue(value: any): string | number | boolean {
+function smartFormatValue(value: unknown): string | number | boolean {
   if (typeof value === "number") {
     return value;
   }
@@ -263,39 +263,67 @@ function getModelColumns(
 
     case "group-by": {
       // Group by : colonnes groupées + agrégations
-      const groupCols = ((params.columns as string) || "")
-        .split(",")
-        .map((c) => c.trim())
-        .filter(Boolean);
-      const aggregations = params.aggregations as string | undefined;
+      // params.columns can be either a string (comma-separated) or an array
+      const groupCols = Array.isArray(params.columns)
+        ? params.columns
+        : typeof params.columns === "string"
+        ? params.columns
+            .split(",")
+            .map((c) => c.trim())
+            .filter(Boolean)
+        : [];
+      const aggregations = params.aggregations;
 
       const cols = [...groupCols];
       if (aggregations) {
-        // Extraire les alias des agrégations (ex: "sum(amount) as total" -> "total")
-        // Pour simplifier, on garde l'agrégation complète
-        const aggList = aggregations
-          .split(",")
-          .map((a) => a.trim())
-          .filter(Boolean);
-        aggList.forEach((agg) => {
-          // Essayer d'extraire l'alias si présent
-          const asMatch = agg.match(/\s+as\s+(\w+)/i);
-          if (asMatch) {
-            cols.push(asMatch[1]);
-          } else {
-            // Générer le même alias que dans generateAggregateSQL
-            const funcMatch = agg.match(/^(\w+)\s*\(([^)]+)\)/i);
-            if (funcMatch) {
-              const [, func, col] = funcMatch;
-              const cleanCol = col.replace(/[*]/g, "all").replace(/\s+/g, "_");
-              const alias = `${func.toLowerCase()}_${cleanCol}`;
+        // aggregations can be an array of objects or a string
+        if (Array.isArray(aggregations)) {
+          // New format: array of { id, function, column, alias }
+          aggregations.forEach((agg: unknown) => {
+            const typedAgg = agg as {
+              function?: string;
+              column?: string;
+              alias?: string;
+            };
+            if (typedAgg.alias) {
+              cols.push(typedAgg.alias);
+            } else if (typedAgg.function && typedAgg.column) {
+              // Generate alias like in generateAggregateSQL
+              const cleanCol = typedAgg.column
+                .replace(/[*]/g, "all")
+                .replace(/\s+/g, "_");
+              const alias = `${typedAgg.function.toLowerCase()}_${cleanCol}`;
               cols.push(alias);
-            } else {
-              // Fallback : garder l'expression complète
-              cols.push(agg);
             }
-          }
-        });
+          });
+        } else if (typeof aggregations === "string") {
+          // Old format: comma-separated string
+          const aggList = aggregations
+            .split(",")
+            .map((a) => a.trim())
+            .filter(Boolean);
+          aggList.forEach((agg) => {
+            // Essayer d'extraire l'alias si présent
+            const asMatch = agg.match(/\s+as\s+(\w+)/i);
+            if (asMatch) {
+              cols.push(asMatch[1]);
+            } else {
+              // Générer le même alias que dans generateAggregateSQL
+              const funcMatch = agg.match(/^(\w+)\s*\(([^)]+)\)/i);
+              if (funcMatch) {
+                const [, func, col] = funcMatch;
+                const cleanCol = col
+                  .replace(/[*]/g, "all")
+                  .replace(/\s+/g, "_");
+                const alias = `${func.toLowerCase()}_${cleanCol}`;
+                cols.push(alias);
+              } else {
+                // Fallback : garder l'expression complète
+                cols.push(agg);
+              }
+            }
+          });
+        }
       }
 
       return cols.length > 0 ? cols : ["*"];
@@ -369,7 +397,8 @@ export function generateDbtModel(
       nodes,
       edges,
       dependencyGraph,
-      outputNode
+      outputNode,
+      projectName
     );
 
     // 4. Générer sources.yml basé sur les nœuds Database et leurs Tables connectées
@@ -388,7 +417,7 @@ export function generateDbtModel(
       if (connectedTableNodes.length > 0) {
         // Extraire le nom de la database depuis l'adapter
         const adapterConfig = dbNode.data.params?.adapter as
-          | { type: string; config?: Record<string, any> }
+          | { type: string; config?: Record<string, unknown> }
           | undefined;
         const dbName =
           adapterConfig?.config?.database ||
@@ -509,9 +538,10 @@ function buildDependencyGraph(edges: Edge[]): Map<string, string[]> {
  */
 function classifyNodes(
   nodes: Node<OperationNodeData>[],
-  edges: Edge[],
+  _edges: Edge[],
   dependencyGraph: Map<string, string[]>,
-  outputNode: Node<OperationNodeData>
+  outputNode: Node<OperationNodeData>,
+  outputModelName: string
 ): ClassifiedNode[] {
   const classified: ClassifiedNode[] = [];
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
@@ -554,11 +584,10 @@ function classifyNodes(
       modelName = `stg_${sanitizeName(tableName)}`;
       filePath = `models/staging/${sanitizeName(database)}/${modelName}.sql`;
     } else if (node.id === outputNode.id) {
-      // Mart layer (final output)
+      // Mart layer (final output) - using the model name from header
       layer = "mart";
-      const outputName = node.data.params?.name || "output";
       const domain = "core"; // Could be extracted from params
-      modelName = `fct_${sanitizeName(outputName)}`;
+      modelName = `fct_${sanitizeName(outputModelName)}`;
       filePath = `models/marts/${domain}/${modelName}.sql`;
     } else {
       // Intermediate layer
@@ -756,7 +785,7 @@ function generateSQLForNode(
  */
 function generateStagingSQL(
   node: Node<OperationNodeData>,
-  params: Record<string, any>,
+  params: Record<string, unknown>,
   databaseNode?: Node<OperationNodeData>
 ): string {
   const tableName =
@@ -768,10 +797,13 @@ function generateStagingSQL(
   if (databaseNode) {
     // Extraire les infos depuis le nœud Database parent
     const adapterConfig = databaseNode.data.params?.adapter as
-      | { type: string; config?: Record<string, any> }
+      | { type: string; config?: Record<string, unknown> }
       | undefined;
-    database = adapterConfig?.config?.database || adapterConfig?.type || "raw";
-    schema = adapterConfig?.config?.schema || "public";
+    database =
+      (adapterConfig?.config?.database as string) ||
+      adapterConfig?.type ||
+      "raw";
+    const schema = (adapterConfig?.config?.schema as string) || "public";
   } else {
     // Fallback pour Manual Table (pas de Database parent)
     database = params.database || "raw";
@@ -1041,12 +1073,20 @@ function generateAggregateSQL(
             ? `COUNT(DISTINCT ${agg.column})`
             : `${agg.function}(${agg.column})`;
 
-        // Add alias if provided
-        if (agg.alias) {
-          return `  ${funcCall} AS ${agg.alias}`;
-        }
+        // ALWAYS add alias (generate if not provided)
+        const alias =
+          agg.alias ||
+          (() => {
+            // Generate alias: sum_sales_amount, count_all, etc.
+            const cleanCol = agg.column
+              .replace(/[*]/g, "all")
+              .replace(/\s+/g, "_");
+            return `${agg.function
+              .toLowerCase()
+              .replace(/\(|\)/g, "_")}_${cleanCol}`;
+          })();
 
-        return `  ${funcCall}`;
+        return `  ${funcCall} AS ${alias}`;
       })
       .join(",\n");
   }
@@ -1205,16 +1245,21 @@ function generateModelDescription(node: ClassifiedNode): string {
     }
 
     case "group-by": {
-      const groupCols = params.columns as string | undefined;
-      const aggs = params.aggregations as any[] | undefined;
+      const groupColsRaw = params.columns;
+      const aggs = params.aggregations as unknown[] | undefined;
 
       let desc = "Aggregated data";
 
-      if (groupCols) {
-        const cols = groupCols
-          .split(",")
-          .map((c) => c.trim())
-          .filter(Boolean);
+      if (groupColsRaw) {
+        // Handle both string and array formats
+        const cols = Array.isArray(groupColsRaw)
+          ? groupColsRaw
+          : typeof groupColsRaw === "string"
+          ? groupColsRaw
+              .split(",")
+              .map((c) => c.trim())
+              .filter(Boolean)
+          : [];
 
         if (cols.length > 0) {
           desc = `Grouped by:\n  - ` + cols.join("\n  - ");
@@ -1224,9 +1269,14 @@ function generateModelDescription(node: ClassifiedNode): string {
       if (aggs && Array.isArray(aggs) && aggs.length > 0) {
         desc += `\n  \n  Aggregations:`;
         aggs.forEach((agg) => {
-          if (agg.function && agg.column) {
-            desc += `\n  - ${agg.function}(${agg.column})`;
-            if (agg.alias) desc += ` as ${agg.alias}`;
+          const typedAgg = agg as {
+            function?: string;
+            column?: string;
+            alias?: string;
+          };
+          if (typedAgg.function && typedAgg.column) {
+            desc += `\n  - ${typedAgg.function}(${typedAgg.column})`;
+            if (typedAgg.alias) desc += ` as ${typedAgg.alias}`;
           }
         });
       }

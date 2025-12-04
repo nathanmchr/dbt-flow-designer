@@ -393,10 +393,13 @@ function Inspector({
         ? "translateX(120%)"
         : "translateX(120%)",
     opacity: stage === "enter" ? 1 : 0,
+    // ⚡ PERFORMANCE: Reduced animation duration for snappier feel
+    // Before: 420ms enter, 200ms exit → Felt sluggish
+    // After: 200ms enter, 150ms exit → Feels instant
     transition:
       stage === "exit"
-        ? `transform 200ms ${exitEase}, opacity 200ms ${exitEase}`
-        : `transform 420ms ${enterEase}, opacity 420ms ${enterEase}`,
+        ? `transform 150ms ${exitEase}, opacity 150ms ${exitEase}` // was 200ms
+        : `transform 200ms ${enterEase}, opacity 200ms ${enterEase}`, // was 420ms
     pointerEvents: stage === "enter" ? "auto" : "none",
   } as const;
 
@@ -495,7 +498,7 @@ function Inspector({
 
               {/* Available columns from upstream nodes */}
               {availableColumns.length > 0 && (
-                <div className="rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-4">
+                <div className="rounded-2xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-4">
                   <h3 className="text-sm font-semibold text-green-900 dark:text-green-200 mb-2 flex items-center gap-2">
                     <svg
                       className="w-4 h-4"
@@ -602,7 +605,7 @@ function Inspector({
                         <button
                           key={idx}
                           type="button"
-                          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${
+                          className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full border transition-all ${
                             isSelected
                               ? "bg-green-600 dark:bg-green-700 border-green-600 dark:border-green-700"
                               : "bg-white dark:bg-gray-800 border-green-200 dark:border-green-700 hover:bg-green-100 dark:hover:bg-green-900/40"
@@ -1574,13 +1577,15 @@ function Inspector({
             </div>
           </div>
           <div className="shrink-0 pb-4 flex flex-row-reverse gap-2 py-1 px-4">
-            <button
-              className="highlight-button rounded-full px-4 py-1 w-20"
-              type="button"
-              onClick={handleSave}
-            >
-              Save
-            </button>
+            {renderedNode?.operation.id !== "dbt-model" && (
+              <button
+                className="highlight-button rounded-full px-4 py-1 w-20"
+                type="button"
+                onClick={handleSave}
+              >
+                Save
+              </button>
+            )}
             {renderedNode?.operation.id !== "dbt-model" && (
               <button
                 className="delete-button px-4 py-1"

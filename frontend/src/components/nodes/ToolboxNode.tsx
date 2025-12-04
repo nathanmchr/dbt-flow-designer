@@ -13,7 +13,7 @@ const ToolboxNode = memo(function ToolboxNode({
 }: ToolboxNodeProps) {
   return (
     <div
-      className="relative node group w-full h-full cursor-pointer"
+      className="relative toolbox-node group w-full h-full cursor-pointer"
       onClick={() => onAddNode(operation)}
     >
       {/* Overlay */}

@@ -221,18 +221,12 @@ export const OPERATION_DEFS: OperationDefinition[] = [
   {
     id: "dbt-model",
     label: "Model Output",
-    description: "Marks the result as a dbt model.",
+    description:
+      "Marks the result as a dbt model. The model name is set in the header.",
     category: "output",
     inputs: 1,
     outputs: 0,
-    params: [
-      {
-        name: "name",
-        label: "Model Name",
-        type: "string",
-        required: true,
-      },
-    ],
+    params: [],
   },
 
   // ------------------------------------------------------------

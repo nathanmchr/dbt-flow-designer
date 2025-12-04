@@ -8,38 +8,67 @@ interface OperationNodeProps {
   id: string;
   data: {
     operation: OperationDefinition;
-    params?: Record<string, any>;
+    params?: Record<string, unknown>;
     onConfigure?: (nodeData: {
       id: string;
       operation: OperationDefinition;
-      params?: Record<string, any>;
+      params?: Record<string, unknown>;
     }) => void;
     onRemove?: (nodeId: string) => void;
+    onSave?: (nodeId: string, params: Record<string, unknown>) => void;
     isSelected?: boolean;
   };
 }
 
-// Helper to format filter group recursively with operators and parentheses
-function formatFilterGroup(node: any, isRoot = false): string {
-  if (!node) return "";
+// Type for filter nodes
+interface FilterNode {
+  type: "group" | "condition";
+  children?: FilterNode[];
+  operators?: string[];
+  column?: string;
+  operator?: string;
+  value?: string | number;
+}
 
-  if (node.type === "condition") {
-    if (!node.column) return "";
-    if (node.operator === "IS NULL" || node.operator === "IS NOT NULL") {
-      return `${node.column} ${node.operator}`;
+// Helper to format filter group recursively with operators and parentheses
+function formatFilterGroup(node: unknown, isRoot = false): string {
+  if (!node || typeof node !== "object") return "";
+
+  // Type guard for condition nodes
+  if ("type" in node && node.type === "condition") {
+    const condition = node as {
+      type: "condition";
+      column?: string;
+      operator?: string;
+      value?: string | number;
+    };
+    if (!condition.column) return "";
+    if (
+      condition.operator === "IS NULL" ||
+      condition.operator === "IS NOT NULL"
+    ) {
+      return `${condition.column} ${condition.operator}`;
     }
-    return `${node.column} ${node.operator} ${node.value || "?"}`;
+    return `${condition.column} ${condition.operator} ${
+      condition.value || "?"
+    }`;
   }
 
-  if (node.type === "group") {
-    if (!node.children || node.children.length === 0) return "";
+  // Type guard for group nodes
+  if ("type" in node && node.type === "group") {
+    const group = node as {
+      type: "group";
+      children?: unknown[];
+      operators?: string[];
+    };
+    if (!group.children || group.children.length === 0) return "";
 
     const parts: string[] = [];
-    for (let i = 0; i < node.children.length; i++) {
-      const childStr = formatFilterGroup(node.children[i]);
+    for (let i = 0; i < group.children.length; i++) {
+      const childStr = formatFilterGroup(group.children[i]);
       if (childStr) {
         if (i > 0) {
-          const op = node.operators?.[i - 1] || "AND";
+          const op = group.operators?.[i - 1] || "AND";
           parts.push(op);
         }
         parts.push(childStr);
@@ -69,8 +98,8 @@ function formatParamValue(value: unknown, paramName?: string): string {
     typeof value === "object" &&
     value !== null &&
     "type" in value &&
-    (value as any).type === "group" &&
-    "children" in (value as any)
+    (value as FilterNode).type === "group" &&
+    "children" in value
   ) {
     const formatted = formatFilterGroup(value, true);
     return formatted || "—";
@@ -85,16 +114,18 @@ function formatParamValue(value: unknown, paramName?: string): string {
       "column" in value[0]
     ) {
       const filterStrs = value
-        .map((filter: any) => {
-          if (!filter.column) return null;
-          if (
-            filter.operator === "IS NULL" ||
-            filter.operator === "IS NOT NULL"
-          ) {
-            return `${filter.column} ${filter.operator}`;
+        .map(
+          (filter: { column?: string; operator?: string; value?: string }) => {
+            if (!filter.column) return null;
+            if (
+              filter.operator === "IS NULL" ||
+              filter.operator === "IS NOT NULL"
+            ) {
+              return `${filter.column} ${filter.operator}`;
+            }
+            return `${filter.column} ${filter.operator} ${filter.value || "?"}`;
           }
-          return `${filter.column} ${filter.operator} ${filter.value || "?"}`;
-        })
+        )
         .filter(Boolean);
 
       if (filterStrs.length === 0) return "—";
@@ -324,7 +355,7 @@ function OperationNode({ id, data }: OperationNodeProps) {
                         e.stopPropagation();
                         const newCount = handleCount - 1;
                         // Save directly via onSave callback with the handle index to remove
-                        const saveCallback = (data as any).onSave;
+                        const saveCallback = data.onSave;
                         if (saveCallback) {
                           saveCallback(id, {
                             ...data.params,
@@ -381,7 +412,7 @@ function OperationNode({ id, data }: OperationNodeProps) {
                     e.stopPropagation();
                     const newCount = handleCount + 1;
                     // Save directly via onSave callback
-                    const saveCallback = (data as any).onSave;
+                    const saveCallback = data.onSave;
                     if (saveCallback) {
                       saveCallback(id, {
                         ...data.params,
@@ -487,7 +518,7 @@ function OperationNode({ id, data }: OperationNodeProps) {
                         e.stopPropagation();
                         const newCount = handleCount - 1;
                         // Save directly via onSave callback with the handle index to remove
-                        const saveCallback = (data as any).onSave;
+                        const saveCallback = data.onSave;
                         if (saveCallback) {
                           saveCallback(id, {
                             ...data.params,
@@ -543,7 +574,7 @@ function OperationNode({ id, data }: OperationNodeProps) {
                     e.stopPropagation();
                     const newCount = handleCount + 1;
                     // Save directly via onSave callback
-                    const saveCallback = (data as any).onSave;
+                    const saveCallback = data.onSave;
                     if (saveCallback) {
                       saveCallback(id, {
                         ...data.params,
@@ -635,4 +666,21 @@ function OperationNode({ id, data }: OperationNodeProps) {
   );
 }
 
-export default memo(OperationNode);
+// ⚡ PERFORMANCE: Custom comparison function for memo
+// Only re-render if these specific props change
+const arePropsEqual = (
+  prevProps: OperationNodeProps,
+  nextProps: OperationNodeProps
+) => {
+  // Check if critical props are the same
+  return (
+    prevProps.id === nextProps.id &&
+    prevProps.data.operation.id === nextProps.data.operation.id &&
+    prevProps.data.isSelected === nextProps.data.isSelected &&
+    // Deep compare params only if both exist
+    JSON.stringify(prevProps.data.params) ===
+      JSON.stringify(nextProps.data.params)
+  );
+};
+
+export default memo(OperationNode, arePropsEqual);

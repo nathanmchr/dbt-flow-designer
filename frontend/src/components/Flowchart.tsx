@@ -11,7 +11,12 @@ import {
   type EdgeChange,
   type NodeChange,
 } from "@xyflow/react";
-import { useCallback, type Dispatch, type SetStateAction } from "react";
+import {
+  useCallback,
+  useMemo,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import type { OperationDefinition } from "../definitions/operations";
 import OperationNode from "./nodes/OperationNode";
 import { AnimatedEdge } from "./AnimatedEdge";
@@ -146,22 +151,31 @@ function Flowchart({
     [setEdges]
   );
 
-  // On injecte handleRemoveNode et handleConfigureNode dans chaque node
-  const nodesWithCallbacks = nodes.map((node) => {
-    if (node.data?.operation) {
-      return {
-        ...node,
-        data: {
-          ...node.data,
-          onRemove: handleRemoveNode,
-          onConfigure: handleConfigureNode,
-          onSave: onSaveParams,
-          isSelected: node.id === selectedNodeId,
-        },
-      };
-    }
-    return node;
-  });
+  // ⚡ PERFORMANCE: Memoize nodesWithCallbacks to prevent recreation on every render
+  // This was causing ALL nodes to re-render during pan/zoom, making navigation laggy
+  const nodesWithCallbacks = useMemo(() => {
+    return nodes.map((node) => {
+      if (node.data?.operation) {
+        return {
+          ...node,
+          data: {
+            ...node.data,
+            onRemove: handleRemoveNode,
+            onConfigure: handleConfigureNode,
+            onSave: onSaveParams,
+            isSelected: node.id === selectedNodeId,
+          },
+        };
+      }
+      return node;
+    });
+  }, [
+    nodes,
+    selectedNodeId,
+    handleRemoveNode,
+    handleConfigureNode,
+    onSaveParams,
+  ]);
 
   return (
     <div className="flowchart flex-1 w-full h-full">
