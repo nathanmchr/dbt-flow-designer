@@ -178,7 +178,7 @@ function Toolbox({ onAddNode }: ToolboxProps) {
             <div key={cat} className="category mb-2">
               <button
                 onClick={() => toggleCategory(cat)}
-                className="w-full flex items-center justify-start group sticky top-0 z-10 gap-2 mb-4 px-4 backdrop-blur-none border-transparent bg-transparent shadow-transparent text-gray-700 dark:text-gray-200 hover:text-gray-700 dark:hover:text-gray-200"
+                className="w-full flex items-center justify-start group sticky top-0 z-10 gap-2 mb-4 px-4 backdrop-blur-none border-transparent bg-transparent shadow-transparent hover:text-gray-700 dark:hover:text-gray-200"
               >
                 <svg
                   className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${

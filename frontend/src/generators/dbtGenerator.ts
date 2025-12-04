@@ -996,54 +996,77 @@ function generateAggregateSQL(
   params: Record<string, any>
 ): string {
   const fromModel = parentModels[0] || "upstream";
-  const groupByColumns = params.columns || "";
-  const aggregations = params.aggregations as string | undefined;
+
+  // New format: columns is an array of column names
+  const groupByColumns = Array.isArray(params.columns)
+    ? params.columns
+    : typeof params.columns === "string"
+    ? params.columns
+        .split(",")
+        .map((c: string) => c.trim())
+        .filter(Boolean)
+    : [];
+
+  // New format: aggregations is an array of Aggregation objects
+  interface Aggregation {
+    id: string;
+    function: string;
+    column: string;
+    alias: string;
+  }
+
+  const aggregations = Array.isArray(params.aggregations)
+    ? (params.aggregations as Aggregation[])
+    : [];
 
   let sql = "SELECT\n";
 
-  if (groupByColumns) {
-    const groupCols = groupByColumns
-      .split(",")
-      .map((c: string) => c.trim())
-      .filter(Boolean);
-    sql += groupCols.map((col: string) => `  ${col}`).join(",\n");
+  // Add group by columns
+  if (groupByColumns.length > 0) {
+    sql += groupByColumns.map((col) => `  ${col}`).join(",\n");
 
-    if (aggregations) {
+    // Add comma if we have aggregations
+    if (aggregations.length > 0) {
       sql += ",\n";
-      // Parse aggregations string - e.g., "sum(sales_amount)" or "sum(amount), count(*)"
-      const aggList = aggregations
-        .split(",")
-        .map((a: string) => a.trim())
-        .filter(Boolean);
-
-      // Add alias if not present
-      sql += aggList
-        .map((agg: string) => {
-          // Check if already has AS alias
-          if (/\s+as\s+/i.test(agg)) {
-            return `  ${agg}`;
-          }
-
-          // Generate alias from function name
-          // Extract: sum(amount) -> total_amount, count(*) -> count_all, etc.
-          const match = agg.match(/^(\w+)\s*\(([^)]+)\)/i);
-          if (match) {
-            const [, func, col] = match;
-            const cleanCol = col.replace(/[*]/g, "all").replace(/\s+/g, "_");
-            const alias = `${func.toLowerCase()}_${cleanCol}`;
-            return `  ${agg} AS ${alias}`;
-          }
-
-          return `  ${agg}`;
-        })
-        .join(",\n");
     }
+  }
 
-    sql += `\nFROM {{ ref('${fromModel}') }}`;
-    sql += `\nGROUP BY ${groupCols.join(", ")}`;
-  } else {
-    sql += "  *\n";
-    sql += `FROM {{ ref('${fromModel}') }}`;
+  // Add aggregations
+  if (aggregations.length > 0) {
+    sql += aggregations
+      .map((agg) => {
+        // Handle COUNT(DISTINCT column)
+        const funcCall =
+          agg.function === "COUNT(DISTINCT)"
+            ? `COUNT(DISTINCT ${agg.column})`
+            : `${agg.function}(${agg.column})`;
+
+        // Add alias if provided
+        if (agg.alias) {
+          return `  ${funcCall} AS ${agg.alias}`;
+        }
+
+        return `  ${funcCall}`;
+      })
+      .join(",\n");
+  }
+
+  // If no columns and no aggregations, select all
+  if (groupByColumns.length === 0 && aggregations.length === 0) {
+    sql += "  *";
+  }
+
+  sql += `\nFROM {{ ref('${fromModel}') }}`;
+
+  // Add GROUP BY clause
+  if (groupByColumns.length > 0) {
+    sql += "\nGROUP BY\n";
+    sql += groupByColumns
+      .map((col, i) => {
+        const comma = i < groupByColumns.length - 1 ? "," : "";
+        return `  ${col}${comma}`;
+      })
+      .join("\n");
   }
 
   return sql;

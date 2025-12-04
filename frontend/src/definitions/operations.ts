@@ -14,13 +14,15 @@ export interface OperationParam {
     | "select"
     | "column-list"
     | "column-select"
+    | "column-selector"
     | "column-rename"
     | "table"
     | "column-definition"
     | "filter-condition"
     | "filter-builder"
     | "join-condition"
-    | "adapter-selector";
+    | "adapter-selector"
+    | "aggregations-builder";
   required?: boolean;
   options?: string[];
   tooltip?: string;
@@ -169,21 +171,23 @@ export const OPERATION_DEFS: OperationDefinition[] = [
   {
     id: "group-by",
     label: "Group By",
-    description: "Groups rows and applies aggregations.",
+    description:
+      "Groups rows and applies aggregations (SUM, AVG, COUNT, etc.).",
     category: "transform",
     inputs: 1,
     outputs: 1,
     params: [
       {
         name: "columns",
-        label: "Group Columns",
-        type: "column-list",
+        label: "Group By Columns",
+        type: "column-selector",
         required: true,
       },
       {
         name: "aggregations",
         label: "Aggregations",
-        type: "string",
+        type: "aggregations-builder",
+        required: false,
       },
     ],
   },

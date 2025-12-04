@@ -84,6 +84,71 @@ export function getAvailableColumns(
         );
         allColumns.push(...inheritedColumns);
       }
+    } else if (sourceNode.data.operation.id === "group-by") {
+      // For GROUP BY nodes, propagate:
+      // 1. The GROUP BY columns (with their original types)
+      // 2. The aggregated columns (with inferred types)
+
+      const groupByColumns = sourceNode.data.params?.columns as
+        | string[]
+        | undefined;
+      const aggregations = sourceNode.data.params?.aggregations as
+        | Array<{
+            id: string;
+            function: string;
+            column: string;
+            alias: string;
+          }>
+        | undefined;
+
+      // Get parent columns to determine types
+      const parentColumns = getAvailableColumns(sourceNode.id, nodes, edges);
+
+      // Add GROUP BY columns (preserve their types)
+      if (groupByColumns && Array.isArray(groupByColumns)) {
+        groupByColumns.forEach((colName) => {
+          const parentCol = parentColumns.find((col) => col.name === colName);
+          if (parentCol) {
+            allColumns.push({
+              name: colName,
+              type: parentCol.type,
+            });
+          }
+        });
+      }
+
+      // Add aggregation columns (infer types based on function)
+      if (aggregations && Array.isArray(aggregations)) {
+        aggregations.forEach((agg) => {
+          const alias =
+            agg.alias || `${agg.function.toLowerCase()}_${agg.column}`;
+
+          // Infer type based on aggregation function
+          let type = "NUMERIC"; // Default for most aggregations
+
+          if (agg.function === "COUNT" || agg.function === "COUNT(DISTINCT)") {
+            type = "INTEGER";
+          } else if (
+            agg.function === "STRING_AGG" ||
+            agg.function === "LISTAGG"
+          ) {
+            type = "VARCHAR";
+          } else if (agg.function === "ARRAY_AGG") {
+            type = "ARRAY";
+          } else if (["SUM", "AVG", "MIN", "MAX"].includes(agg.function)) {
+            // Try to preserve the type of the aggregated column
+            const parentCol = parentColumns.find(
+              (col) => col.name === agg.column
+            );
+            type = parentCol?.type || "NUMERIC";
+          }
+
+          allColumns.push({
+            name: alias,
+            type: type,
+          });
+        });
+      }
     } else {
       // For other nodes, recursively get their available columns
       const inheritedColumns = getAvailableColumns(sourceNode.id, nodes, edges);
