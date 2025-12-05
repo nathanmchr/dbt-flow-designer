@@ -1,3 +1,13 @@
+/**
+ * @fileoverview Filter Builder component for visual WHERE clause construction.
+ *
+ * Provides a drag-and-drop interface for building complex SQL filter conditions
+ * with support for:
+ * - Nested groups with AND/OR operators
+ * - Multiple comparison operators (=, !=, <, >, LIKE, IN, NULL checks)
+ * - Reorderable conditions via drag handles
+ */
+
 import {
   DndContext,
   closestCenter,

@@ -1,3 +1,13 @@
+/**
+ * @fileoverview Column propagation logic for the flowchart.
+ *
+ * Tracks column definitions as they flow through the pipeline:
+ * - Source nodes define initial column schemas
+ * - SELECT nodes filter and rename columns
+ * - GROUP BY nodes transform columns to aggregated outputs
+ * - Other nodes pass columns through unchanged
+ */
+
 import type { Edge, Node } from "@xyflow/react";
 import type { OperationDefinition } from "./operations";
 

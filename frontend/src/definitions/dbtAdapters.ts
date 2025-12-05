@@ -1,9 +1,12 @@
-// dbtAdapters.ts
-// -----------------------------------------------------------------------------
-// Definition of DBT-supported database adapters and their connection parameters.
-// This file defines the input requirements for each adapter so that the UI
-// can dynamically display configuration fields in the inspector.
-// -----------------------------------------------------------------------------
+/**
+ * @fileoverview dbt adapter definitions for database connections.
+ *
+ * Defines supported database adapters and their connection parameters:
+ * - PostgreSQL, MySQL, Snowflake, BigQuery, Redshift
+ * - Databricks, DuckDB, SQLite
+ *
+ * Each adapter specifies required fields for the inspector UI.
+ */
 
 export interface DBTAdapterParam {
   name: string;

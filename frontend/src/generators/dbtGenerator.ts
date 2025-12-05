@@ -1,49 +1,65 @@
-import type { Node, Edge } from "reactflow";
+/**
+ * @fileoverview dbt Model Generator
+ *
+ * Transforms a visual flowchart into a complete dbt project structure.
+ * Generates SQL models, sources.yml, schema.yml, and dbt_project.yml.
+ *
+ * Architecture:
+ * - Nodes are classified into layers: staging, intermediate, and mart
+ * - Pipeline optimization groups simple operations into CTEs
+ * - Column types are tracked for proper SQL value formatting
+ */
+
+import type { Node, Edge } from "@xyflow/react";
 import type { OperationDefinition } from "../definitions/operations";
 import { PipelineOptimizer } from "./pipelineOptimizer";
 import { generateCombinedSQL } from "./cteHelpers";
 
-// Type pour les données des nodes
+// =============================================================================
+// Types
+// =============================================================================
+
+/** Node data containing operation definition and parameters */
 export type OperationNodeData = {
   operation: OperationDefinition;
-  params: Record<string, unknown>;
+  params?: Record<string, unknown>;
 };
 
-// Type pour les fichiers générés
+/** Generated file with path and content */
 export interface GeneratedFile {
   path: string;
   content: string;
 }
 
-// Type pour le résultat de la génération
+/** Output from dbt model generation */
 export interface DbtModelOutput {
   files: GeneratedFile[];
   errors: string[];
 }
 
-// Type pour un nœud classifié
+/** Node classification with layer, model name, and metadata */
 export type ClassifiedNode = {
   node: Node<OperationNodeData>;
   layer: "staging" | "intermediate" | "mart";
   modelName: string;
   filePath: string;
-  dependencies: string[]; // IDs des nœuds parents
-  columns: string[]; // Colonnes de sortie du modèle
+  dependencies: string[];
+  columns: string[];
 };
 
-// Type pour un groupe de nœuds (approche hybride)
+/** Group of nodes for CTE optimization */
 export type NodeGroup = {
   nodes: Node<OperationNodeData>[];
   groupName: string;
   layer: "staging" | "intermediate" | "mart";
   filePath: string;
-  isCombined: boolean; // true si multiple nœuds groupés
-  mainOperation: string; // L'opération principale du groupe
-  dependencies: string[]; // IDs des nœuds parents externes au groupe
-  columns: string[]; // Colonnes de sortie du groupe
+  isCombined: boolean;
+  mainOperation: string;
+  dependencies: string[];
+  columns: string[];
 };
 
-// Type pour une CTE
+/** CTE (Common Table Expression) definition */
 export type CTE = {
   name: string;
   sql: string;
@@ -51,13 +67,19 @@ export type CTE = {
   columns: string[];
 };
 
-// Options de génération
+/** Generator options */
 export interface GeneratorOptions {
-  optimizePipeline?: boolean; // true = approche hybride, false = 1 fichier/opération
+  /** Enable hybrid pipeline optimization (default: true) */
+  optimizePipeline?: boolean;
 }
 
+// =============================================================================
+// Column Type Registry
+// =============================================================================
+
 /**
- * Column Type Registry - Collecte les types de colonnes depuis tous les nodes source
+ * Builds a registry mapping column names to their SQL types.
+ * Collects type information from source nodes for proper value formatting.
  */
 function buildColumnTypeRegistry(
   nodes: Node<OperationNodeData>[]
@@ -67,27 +89,19 @@ function buildColumnTypeRegistry(
   nodes.forEach((node) => {
     const opId = node.data.operation.id;
 
-    // Collecter depuis les source nodes (database, source-table, source-manual)
     if (
       opId === "database" ||
       opId === "source-table" ||
       opId === "source-manual"
     ) {
       const columns = node.data.params?.columns as
-        | Array<{
-            name: string;
-            type: string;
-            alias?: string;
-          }>
+        | Array<{ name: string; type: string; alias?: string }>
         | undefined;
 
       if (columns && Array.isArray(columns)) {
         columns.forEach((col) => {
-          // Enregistrer le type de la colonne
           registry.set(col.name, col.type);
-
-          // Si alias existe, enregistrer aussi
-          if (col.alias && col.alias.trim()) {
+          if (col.alias?.trim()) {
             registry.set(col.alias, col.type);
           }
         });
@@ -98,8 +112,13 @@ function buildColumnTypeRegistry(
   return registry;
 }
 
+// =============================================================================
+// Value Formatting
+// =============================================================================
+
 /**
- * Formate une valeur selon le type de colonne (schema-based)
+ * Formats a value based on its column type for SQL generation.
+ * Handles numeric, boolean, date, and string types appropriately.
  */
 function formatValueByColumnType(
   column: string,
@@ -108,12 +127,11 @@ function formatValueByColumnType(
 ): string | number | boolean {
   const type = columnTypes.get(column);
 
-  // Si type inconnu, fallback sur comportement intelligent
   if (!type) {
     return smartFormatValue(value);
   }
 
-  // Types numériques → Sans quotes
+  // Numeric types: no quotes
   if (
     type === "INTEGER" ||
     type === "FLOAT" ||
@@ -121,69 +139,61 @@ function formatValueByColumnType(
     type === "DECIMAL" ||
     type === "BIGINT"
   ) {
-    if (typeof value === "number") {
-      return value;
-    }
+    if (typeof value === "number") return value;
     if (typeof value === "string") {
       const num = parseFloat(value);
       return isNaN(num) ? `'${value}'` : num;
     }
-    return value;
+    return value as string | number | boolean;
   }
 
-  // Booleans → Sans quotes
+  // Boolean types: no quotes
   if (type === "BOOLEAN" || type === "BOOL") {
-    if (typeof value === "boolean") {
-      return value;
-    }
-    // Convert string to boolean
+    if (typeof value === "boolean") return value;
     if (value === "true" || value === "1" || value === 1) return true;
     if (value === "false" || value === "0" || value === 0) return false;
-    return value;
+    return value as string | number | boolean;
   }
 
-  // Dates et Timestamps → Avec quotes
+  // Date and timestamp types: with quotes
   if (type === "DATE" || type === "TIMESTAMP" || type === "DATETIME") {
     return `'${value}'`;
   }
 
-  // VARCHAR et autres types string → Avec quotes
+  // String types: with quotes
   return `'${value}'`;
 }
 
 /**
- * Fallback intelligent si type de colonne inconnu
+ * Smart value formatting fallback when column type is unknown.
+ * Infers type from the value itself.
  */
 function smartFormatValue(value: unknown): string | number | boolean {
-  if (typeof value === "number") {
-    return value;
-  }
-
-  if (typeof value === "boolean") {
-    return value;
-  }
+  if (typeof value === "number") return value;
+  if (typeof value === "boolean") return value;
 
   if (typeof value === "string") {
-    // Déjà quoté?
-    if (value.startsWith("'") && value.endsWith("'")) {
-      return value;
-    }
+    // Already quoted
+    if (value.startsWith("'") && value.endsWith("'")) return value;
 
-    // Nombre?
+    // Try to parse as number
     const num = parseFloat(value);
-    if (!isNaN(num) && value.trim() === num.toString()) {
-      return num;
-    }
+    if (!isNaN(num) && value.trim() === num.toString()) return num;
 
-    // String
+    // Default to quoted string
     return `'${value}'`;
   }
 
-  return value;
+  return value as string | number | boolean;
 }
 
+// =============================================================================
+// Column Propagation
+// =============================================================================
+
 /**
- * Récupère les colonnes de sortie d'un modèle
+ * Determines output columns for a model based on its operation type.
+ * Handles column inheritance and transformation tracking.
  */
 function getModelColumns(
   node: Node<OperationNodeData>,
@@ -196,25 +206,22 @@ function getModelColumns(
   switch (opId) {
     case "source-table":
     case "source-manual": {
-      // Pour les sources : utiliser les colonnes avec alias
       const columns = params.columns as
         | Array<{ name: string; alias?: string }>
         | undefined;
-      if (columns && columns.length > 0) {
+      if (columns?.length) {
         return columns.map((col) => col.alias || col.name);
       }
       return ["*"];
     }
 
     case "select": {
-      // Pour SELECT : utiliser les colonnes sélectionnées
       const selectCols = params.columns as
         | Array<{ original: string; alias?: string }>
         | undefined;
-      if (selectCols && selectCols.length > 0) {
+      if (selectCols?.length) {
         return selectCols.map((col) => col.alias || col.original);
       }
-      // Si pas de colonnes spécifiques, hériter du parent
       if (dependencies.length > 0) {
         const parentNode = allClassified.find(
           (cn) => cn.node.id === dependencies[0]
@@ -225,7 +232,6 @@ function getModelColumns(
     }
 
     case "filter": {
-      // Filter : hériter les colonnes du parent
       if (dependencies.length > 0) {
         const parentNode = allClassified.find(
           (cn) => cn.node.id === dependencies[0]
@@ -236,7 +242,6 @@ function getModelColumns(
     }
 
     case "join": {
-      // Join : combiner les colonnes left et right
       if (dependencies.length >= 2) {
         const leftNode = allClassified.find(
           (cn) => cn.node.id === dependencies[0]
@@ -248,7 +253,7 @@ function getModelColumns(
         const leftCols = leftNode?.columns || [];
         const rightCols = rightNode?.columns || [];
 
-        // Combiner, en évitant les doublons (préférer left en cas de conflit)
+        // Combine columns, avoiding duplicates (prefer left on conflict)
         const allCols = [...leftCols];
         rightCols.forEach((col) => {
           if (!leftCols.includes(col)) {
@@ -262,8 +267,7 @@ function getModelColumns(
     }
 
     case "group-by": {
-      // Group by : colonnes groupées + agrégations
-      // params.columns can be either a string (comma-separated) or an array
+      // Support both string and array formats for columns
       const groupCols = Array.isArray(params.columns)
         ? params.columns
         : typeof params.columns === "string"
@@ -276,9 +280,7 @@ function getModelColumns(
 
       const cols = [...groupCols];
       if (aggregations) {
-        // aggregations can be an array of objects or a string
         if (Array.isArray(aggregations)) {
-          // New format: array of { id, function, column, alias }
           aggregations.forEach((agg: unknown) => {
             const typedAgg = agg as {
               function?: string;
@@ -288,7 +290,6 @@ function getModelColumns(
             if (typedAgg.alias) {
               cols.push(typedAgg.alias);
             } else if (typedAgg.function && typedAgg.column) {
-              // Generate alias like in generateAggregateSQL
               const cleanCol = typedAgg.column
                 .replace(/[*]/g, "all")
                 .replace(/\s+/g, "_");
@@ -297,18 +298,15 @@ function getModelColumns(
             }
           });
         } else if (typeof aggregations === "string") {
-          // Old format: comma-separated string
           const aggList = aggregations
             .split(",")
             .map((a) => a.trim())
             .filter(Boolean);
           aggList.forEach((agg) => {
-            // Essayer d'extraire l'alias si présent
             const asMatch = agg.match(/\s+as\s+(\w+)/i);
             if (asMatch) {
               cols.push(asMatch[1]);
             } else {
-              // Générer le même alias que dans generateAggregateSQL
               const funcMatch = agg.match(/^(\w+)\s*\(([^)]+)\)/i);
               if (funcMatch) {
                 const [, func, col] = funcMatch;
@@ -318,7 +316,6 @@ function getModelColumns(
                 const alias = `${func.toLowerCase()}_${cleanCol}`;
                 cols.push(alias);
               } else {
-                // Fallback : garder l'expression complète
                 cols.push(agg);
               }
             }
@@ -331,7 +328,6 @@ function getModelColumns(
 
     case "union":
     case "aggregate": {
-      // Union/Aggregate : hériter du premier parent
       if (dependencies.length > 0) {
         const parentNode = allClassified.find(
           (cn) => cn.node.id === dependencies[0]
@@ -342,7 +338,6 @@ function getModelColumns(
     }
 
     case "dbt-model": {
-      // Model output : hériter du parent
       if (dependencies.length > 0) {
         const parentNode = allClassified.find(
           (cn) => cn.node.id === dependencies[0]
@@ -357,8 +352,18 @@ function getModelColumns(
   }
 }
 
+// =============================================================================
+// Main Generator
+// =============================================================================
+
 /**
- * Génère un projet dbt complet à partir d'un flowchart
+ * Generates a complete dbt project from a flowchart.
+ *
+ * @param nodes - All nodes in the flowchart
+ * @param edges - All connections between nodes
+ * @param projectName - Name for the dbt project
+ * @param options - Generator options (e.g., pipeline optimization)
+ * @returns Generated files and any errors encountered
  */
 export function generateDbtModel(
   nodes: Node<OperationNodeData>[],
@@ -366,33 +371,31 @@ export function generateDbtModel(
   projectName: string,
   options: GeneratorOptions = {}
 ): DbtModelOutput {
-  // Approche hybride activée par défaut - Groupe les opérations simples en CTEs
   const { optimizePipeline = true } = options;
 
   const files: GeneratedFile[] = [];
   const errors: string[] = [];
 
   try {
-    // 1. Validation
+    // Validate input
     if (nodes.length === 0) {
       errors.push("No nodes in the model");
       return { files, errors };
     }
 
-    // Trouver le nœud Model Output
     const outputNode = nodes.find((n) => n.data.operation.id === "dbt-model");
     if (!outputNode) {
       errors.push("No Model Output node found");
       return { files, errors };
     }
 
-    // ✅ Construire le registre des types de colonnes
+    // Build column type registry
     const columnTypes = buildColumnTypeRegistry(nodes);
 
-    // 2. Construire le graphe de dépendances
+    // Build dependency graph
     const dependencyGraph = buildDependencyGraph(edges);
 
-    // 3. Classifier tous les nœuds (staging, intermediate, mart)
+    // Classify all nodes
     const classifiedNodes = classifyNodes(
       nodes,
       edges,
@@ -401,12 +404,11 @@ export function generateDbtModel(
       projectName
     );
 
-    // 4. Générer sources.yml basé sur les nœuds Database et leurs Tables connectées
+    // Generate sources.yml for each database node
     const databaseNodes = nodes.filter(
       (n) => n.data.operation.id === "database"
     );
     databaseNodes.forEach((dbNode) => {
-      // Trouver toutes les tables connectées à cette database
       const connectedTableNodes = edges
         .filter((edge) => edge.source === dbNode.id)
         .map((edge) => nodes.find((n) => n.id === edge.target))
@@ -415,7 +417,6 @@ export function generateDbtModel(
         ) as Node<OperationNodeData>[];
 
       if (connectedTableNodes.length > 0) {
-        // Extraire le nom de la database depuis l'adapter
         const adapterConfig = dbNode.data.params?.adapter as
           | { type: string; config?: Record<string, unknown> }
           | undefined;
@@ -425,22 +426,20 @@ export function generateDbtModel(
           sanitizeName(dbNode.id);
         const schema = adapterConfig?.config?.schema || "public";
 
-        // Générer sources.yml pour cette database
         const content = generateSourcesYmlForDatabaseNode(
-          dbName,
-          schema,
+          String(dbName),
+          String(schema),
           connectedTableNodes
         );
         files.push({
-          path: `models/staging/${sanitizeName(dbName)}/sources.yml`,
+          path: `models/staging/${sanitizeName(String(dbName))}/sources.yml`,
           content,
         });
       }
     });
 
-    // 5. Générer les fichiers SQL
+    // Generate SQL files
     if (optimizePipeline) {
-      // APPROCHE HYBRIDE - Grouper les nœuds simples
       const optimizer = new PipelineOptimizer(dependencyGraph);
       const optimizedGroups = optimizer.optimizePipeline(classifiedNodes);
 
@@ -448,7 +447,6 @@ export function generateDbtModel(
         let sql: string;
 
         if (group.isCombined) {
-          // Groupe de plusieurs nœuds → générer avec CTEs
           sql = generateCombinedSQL(
             group,
             optimizedGroups,
@@ -456,56 +454,28 @@ export function generateDbtModel(
             columnTypes
           );
         } else {
-          // Nœud unique → utiliser la logique classique
           const cn = classifiedNodes.find(
             (c) => c.node.id === group.nodes[0].id
           )!;
-          sql = generateSQLForNode(
-            cn,
-            classifiedNodes,
-            dependencyGraph,
-            nodes,
-            edges,
-            columnTypes
-          );
+          sql = generateSQLForNode(cn, classifiedNodes, columnTypes);
         }
 
-        files.push({
-          path: group.filePath,
-          content: sql,
-        });
+        files.push({ path: group.filePath, content: sql });
       });
     } else {
-      // APPROCHE CLASSIQUE - 1 fichier par nœud
       classifiedNodes.forEach((cn) => {
-        const sql = generateSQLForNode(
-          cn,
-          classifiedNodes,
-          dependencyGraph,
-          nodes,
-          edges,
-          columnTypes
-        );
-        files.push({
-          path: cn.filePath,
-          content: sql,
-        });
+        const sql = generateSQLForNode(cn, classifiedNodes, columnTypes);
+        files.push({ path: cn.filePath, content: sql });
       });
     }
 
-    // 6. Générer schema.yml global
-    const schemaYml = generateSchemaYml(classifiedNodes, projectName);
-    files.push({
-      path: `models/schema.yml`,
-      content: schemaYml,
-    });
+    // Generate schema.yml
+    const schemaYml = generateSchemaYml(classifiedNodes);
+    files.push({ path: `models/schema.yml`, content: schemaYml });
 
-    // 7. Créer dbt_project.yml
+    // Generate dbt_project.yml
     const dbtProjectYml = generateDbtProjectYml(projectName);
-    files.push({
-      path: `dbt_project.yml`,
-      content: dbtProjectYml,
-    });
+    files.push({ path: `dbt_project.yml`, content: dbtProjectYml });
   } catch (error) {
     errors.push(
       `Generation error: ${
@@ -517,8 +487,12 @@ export function generateDbtModel(
   return { files, errors };
 }
 
+// =============================================================================
+// Dependency Graph
+// =============================================================================
+
 /**
- * Construit un graphe de dépendances (id -> [parent ids])
+ * Builds a dependency graph mapping node IDs to their parent node IDs.
  */
 function buildDependencyGraph(edges: Edge[]): Map<string, string[]> {
   const graph = new Map<string, string[]>();
@@ -533,8 +507,13 @@ function buildDependencyGraph(edges: Edge[]): Map<string, string[]> {
   return graph;
 }
 
+// =============================================================================
+// Node Classification
+// =============================================================================
+
 /**
- * Classifier les nœuds en staging, intermediate, ou mart
+ * Classifies nodes into dbt layers: staging, intermediate, or mart.
+ * Determines model names and file paths for each node.
  */
 function classifyNodes(
   nodes: Node<OperationNodeData>[],
@@ -547,20 +526,19 @@ function classifyNodes(
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   const processed = new Set<string>();
 
-  // Helper function to classify a single node
   const classifyNode = (node: Node<OperationNodeData>) => {
     if (processed.has(node.id)) return;
 
     const opId = node.data.operation.id;
     const dependencies = dependencyGraph.get(node.id) || [];
 
-    // Skip database nodes - they only generate sources.yml, not models
+    // Skip database nodes
     if (opId === "database") {
       processed.add(node.id);
       return;
     }
 
-    // First, ensure all dependencies are processed
+    // Process dependencies first
     dependencies.forEach((depId) => {
       const depNode = nodeMap.get(depId);
       if (depNode && !processed.has(depId)) {
@@ -573,7 +551,6 @@ function classifyNodes(
     let filePath: string;
 
     if (opId === "source-table" || opId === "source-manual") {
-      // Staging layer
       layer = "staging";
       const tableName =
         node.data.params?.table ||
@@ -581,16 +558,16 @@ function classifyNodes(
         node.data.params?.name ||
         "unknown";
       const database = node.data.params?.database || "default";
-      modelName = `stg_${sanitizeName(tableName)}`;
-      filePath = `models/staging/${sanitizeName(database)}/${modelName}.sql`;
+      modelName = `stg_${sanitizeName(String(tableName))}`;
+      filePath = `models/staging/${sanitizeName(
+        String(database)
+      )}/${modelName}.sql`;
     } else if (node.id === outputNode.id) {
-      // Mart layer (final output) - using the model name from header
       layer = "mart";
-      const domain = "core"; // Could be extracted from params
+      const domain = "core";
       modelName = `fct_${sanitizeName(outputModelName)}`;
       filePath = `models/marts/${domain}/${modelName}.sql`;
     } else {
-      // Intermediate layer
       layer = "intermediate";
       modelName = generateIntermediateName(
         node,
@@ -601,7 +578,6 @@ function classifyNodes(
       filePath = `models/intermediate/${modelName}.sql`;
     }
 
-    // Calculate output columns for this node
     const columns = getModelColumns(node, dependencies, classified);
 
     classified.push({
@@ -615,14 +591,13 @@ function classifyNodes(
     processed.add(node.id);
   };
 
-  // Process all nodes in topological order
   nodes.forEach((node) => classifyNode(node));
 
   return classified;
 }
 
 /**
- * Générer un nom pour un modèle intermédiaire
+ * Generates a descriptive name for an intermediate model.
  */
 function generateIntermediateName(
   node: Node<OperationNodeData>,
@@ -633,20 +608,15 @@ function generateIntermediateName(
   const opId = node.data.operation.id;
   const deps = dependencyGraph.get(node.id) || [];
 
-  // Get parent model names from already classified nodes
   const parentModels = deps
     .map((depId) => {
       const classified = allClassified.find((cn) => cn.node.id === depId);
       if (classified) {
-        // Extract base name from parent model (remove int_ prefix and operation suffix)
         const modelName = classified.modelName;
-        // For staging models (stg_xxx), remove stg_ prefix
         if (modelName.startsWith("stg_")) {
           return modelName.substring(4);
         }
-        // For intermediate models, extract the base name
         if (modelName.startsWith("int_")) {
-          // Remove int_ and everything after the first operation keyword
           const withoutPrefix = modelName.substring(4);
           const operationKeywords = [
             "_selected",
@@ -668,23 +638,21 @@ function generateIntermediateName(
         return modelName;
       }
 
-      // Fallback to params if not classified yet
       const depNode = nodeMap.get(depId);
       if (!depNode) return null;
       const tableName =
         depNode.data.params?.tableName || depNode.data.params?.name;
-      return tableName ? sanitizeName(tableName) : null;
+      return tableName ? sanitizeName(String(tableName)) : null;
     })
     .filter(Boolean) as string[];
 
   const baseName = parentModels.length > 0 ? parentModels[0] : "data";
 
-  // Count how many nodes of this type operate on the same base
   const sameTypeCount =
     allClassified.filter(
       (cn) =>
         cn.node.data.operation.id === opId && cn.modelName.includes(baseName)
-    ).length + 1; // +1 for current node
+    ).length + 1;
 
   const suffix = sameTypeCount > 1 ? `_${sameTypeCount}` : "";
 
@@ -693,10 +661,11 @@ function generateIntermediateName(
       return `int_${baseName}_selected${suffix}`;
     case "filter":
       return `int_${baseName}_filtered${suffix}`;
-    case "join":
+    case "join": {
       const leftName = parentModels[0] || "left";
       const rightName = parentModels[1] || "right";
       return `int_${leftName}_join_${rightName}${suffix}`;
+    }
     case "aggregate":
       return `int_${baseName}_aggregated${suffix}`;
     case "group-by":
@@ -708,22 +677,22 @@ function generateIntermediateName(
   }
 }
 
+// =============================================================================
+// SQL Generation
+// =============================================================================
+
 /**
- * Générer le SQL pour un nœud donné
+ * Generates SQL for a single classified node.
  */
 function generateSQLForNode(
   classified: ClassifiedNode,
   allClassified: ClassifiedNode[],
-  dependencyGraph: Map<string, string[]>,
-  nodes: Node<OperationNodeData>[],
-  edges: Edge[],
   columnTypes: Map<string, string>
 ): string {
   const { node, layer, modelName, dependencies } = classified;
   const opId = node.data.operation.id;
   const params = node.data.params || {};
 
-  // Trouver les modèles parents
   const parentModels = dependencies
     .map((depId) => {
       const parent = allClassified.find((cn) => cn.node.id === depId);
@@ -738,13 +707,8 @@ function generateSQLForNode(
 
   switch (opId) {
     case "source-table":
-      // Trouver le nœud Database parent
-      const databaseNodeId = dependencies[0]; // Le parent devrait être le Database node
-      const databaseNode = nodes.find((n) => n.id === databaseNodeId);
-      return sql + generateStagingSQL(node, params, databaseNode);
-
     case "source-manual":
-      return sql + generateStagingSQL(node, params);
+      return sql + generateStagingSQL(params);
 
     case "select":
       return sql + generateSelectSQL(parentModels, params);
@@ -756,13 +720,9 @@ function generateSQLForNode(
       );
 
     case "join":
-      return (
-        sql + generateJoinSQL(parentModels, params, dependencies, allClassified)
-      );
+      return sql + generateJoinSQL(parentModels, params, allClassified);
 
     case "aggregate":
-      return sql + generateAggregateSQL(parentModels, params);
-
     case "group-by":
       return sql + generateAggregateSQL(parentModels, params);
 
@@ -770,7 +730,6 @@ function generateSQLForNode(
       return sql + generateUnionSQL(parentModels);
 
     case "dbt-model":
-      // Final model output - just select from upstream
       return sql + generateOutputSQL(parentModels, classified.columns);
 
     default:
@@ -781,34 +740,12 @@ function generateSQLForNode(
 }
 
 /**
- * Générer SQL pour staging (source)
+ * Generates SQL for staging models (source tables).
  */
-function generateStagingSQL(
-  node: Node<OperationNodeData>,
-  params: Record<string, unknown>,
-  databaseNode?: Node<OperationNodeData>
-): string {
+function generateStagingSQL(params: Record<string, unknown>): string {
   const tableName =
     params.table || params.tableName || params.name || "unknown";
-
-  let database: string;
-  let schema: string;
-
-  if (databaseNode) {
-    // Extraire les infos depuis le nœud Database parent
-    const adapterConfig = databaseNode.data.params?.adapter as
-      | { type: string; config?: Record<string, unknown> }
-      | undefined;
-    database =
-      (adapterConfig?.config?.database as string) ||
-      adapterConfig?.type ||
-      "raw";
-    const schema = (adapterConfig?.config?.schema as string) || "public";
-  } else {
-    // Fallback pour Manual Table (pas de Database parent)
-    database = params.database || "raw";
-    schema = params.schema || "public";
-  }
+  const database = params.database || "raw";
 
   const columns = params.columns as
     | Array<{ name: string; type: string; alias?: string }>
@@ -816,7 +753,7 @@ function generateStagingSQL(
 
   let sql = "SELECT\n";
 
-  if (columns && columns.length > 0) {
+  if (columns?.length) {
     const columnList = columns
       .map((col) => {
         if (col.alias) {
@@ -836,11 +773,11 @@ function generateStagingSQL(
 }
 
 /**
- * Générer SQL pour select
+ * Generates SQL for SELECT operations.
  */
 function generateSelectSQL(
   parentModels: string[],
-  params: Record<string, any>
+  params: Record<string, unknown>
 ): string {
   const columns = params.columns as
     | Array<{ original: string; alias?: string }>
@@ -849,7 +786,7 @@ function generateSelectSQL(
 
   let sql = "SELECT\n";
 
-  if (columns && columns.length > 0) {
+  if (columns?.length) {
     const columnList = columns
       .map((col) => {
         if (col.alias) {
@@ -869,17 +806,16 @@ function generateSelectSQL(
 }
 
 /**
- * Générer SQL pour filter
+ * Generates SQL for FILTER operations with WHERE clause.
  */
 function generateFilterSQL(
   parentModels: string[],
-  params: Record<string, any>,
+  params: Record<string, unknown>,
   columns: string[],
   columnTypes: Map<string, string>
 ): string {
   const fromModel = parentModels[0] || "upstream";
 
-  // Generate explicit column selection
   let sql = "SELECT\n";
   if (columns.length > 0 && columns[0] !== "*") {
     const columnList = columns.map((col) => `  ${col}`).join(",\n");
@@ -890,7 +826,6 @@ function generateFilterSQL(
 
   sql += `\nFROM {{ ref('${fromModel}') }}`;
 
-  // Handle FilterGroup structure
   if (params.condition) {
     const whereClause = buildFilterSQL(params.condition, columnTypes);
     if (whereClause) {
@@ -902,36 +837,52 @@ function generateFilterSQL(
 }
 
 /**
- * Helper pour construire le SQL de filtres récursifement
+ * Recursively builds SQL filter conditions from a filter tree.
  */
-function buildFilterSQL(node: any, columnTypes: Map<string, string>): string {
+function buildFilterSQL(
+  node: unknown,
+  columnTypes: Map<string, string>
+): string {
   if (!node) return "";
 
-  if (node.type === "condition") {
-    if (!node.column) return "";
+  const typedNode = node as {
+    type?: string;
+    column?: string;
+    operator?: string;
+    value?: unknown;
+    children?: unknown[];
+    operators?: string[];
+  };
 
-    // Handle NULL operators
-    if (node.operator === "IS NULL" || node.operator === "IS NOT NULL") {
-      return `${node.column} ${node.operator}`;
+  if (typedNode.type === "condition") {
+    if (!typedNode.column) return "";
+
+    if (
+      typedNode.operator === "IS NULL" ||
+      typedNode.operator === "IS NOT NULL"
+    ) {
+      return `${typedNode.column} ${typedNode.operator}`;
     }
 
-    const val = node.value;
+    const val = typedNode.value;
+    const finalVal = formatValueByColumnType(
+      typedNode.column,
+      val,
+      columnTypes
+    );
 
-    // ✅ Use schema-based formatting
-    const finalVal = formatValueByColumnType(node.column, val, columnTypes);
-
-    return `${node.column} ${node.operator} ${finalVal}`;
+    return `${typedNode.column} ${typedNode.operator} ${finalVal}`;
   }
 
-  if (node.type === "group") {
-    if (!node.children || node.children.length === 0) return "";
+  if (typedNode.type === "group") {
+    if (!typedNode.children || typedNode.children.length === 0) return "";
 
     const parts: string[] = [];
-    for (let i = 0; i < node.children.length; i++) {
-      const childSQL = buildFilterSQL(node.children[i], columnTypes);
+    for (let i = 0; i < typedNode.children.length; i++) {
+      const childSQL = buildFilterSQL(typedNode.children[i], columnTypes);
       if (childSQL) {
         if (i > 0) {
-          const op = node.operators?.[i - 1] || "AND";
+          const op = typedNode.operators?.[i - 1] || "AND";
           parts.push(op);
         }
         parts.push(childSQL);
@@ -940,9 +891,6 @@ function buildFilterSQL(node: any, columnTypes: Map<string, string>): string {
 
     if (parts.length === 0) return "";
 
-    // Only add parentheses if:
-    // - Multiple children (more than 1 part that's not an operator)
-    // - Contains OR operator (needs grouping)
     const hasMultipleConditions =
       parts.filter((p) => p !== "AND" && p !== "OR").length > 1;
     const hasOrOperator = parts.includes("OR");
@@ -951,7 +899,6 @@ function buildFilterSQL(node: any, columnTypes: Map<string, string>): string {
       return `(${parts.join(" ")})`;
     }
 
-    // Single condition without grouping needed
     return parts.join(" ");
   }
 
@@ -959,12 +906,11 @@ function buildFilterSQL(node: any, columnTypes: Map<string, string>): string {
 }
 
 /**
- * Générer SQL pour join
+ * Generates SQL for JOIN operations.
  */
 function generateJoinSQL(
   parentModels: string[],
-  params: Record<string, any>,
-  dependencies: string[],
+  params: Record<string, unknown>,
   allClassified: ClassifiedNode[]
 ): string {
   const leftModel = parentModels[0] || "left";
@@ -974,7 +920,6 @@ function generateJoinSQL(
     | { leftColumn: string; operator: string; rightColumn: string }
     | undefined;
 
-  // Get columns from left and right models
   const leftNode = allClassified.find((cn) => cn.modelName === leftModel);
   const rightNode = allClassified.find((cn) => cn.modelName === rightModel);
 
@@ -983,14 +928,11 @@ function generateJoinSQL(
 
   let sql = "SELECT\n";
 
-  // Generate explicit column selection
   if (leftCols.length > 0 && leftCols[0] !== "*") {
-    // Add all left columns with l. prefix
     const leftSelect = leftCols.map((col) => `  l.${col}`).join(",\n");
     sql += leftSelect;
 
     if (rightCols.length > 0 && rightCols[0] !== "*") {
-      // Add right columns that don't conflict with left
       const rightSelect = rightCols
         .filter((col) => !leftCols.includes(col))
         .map((col) => `  r.${col}`)
@@ -1000,18 +942,16 @@ function generateJoinSQL(
         sql += ",\n" + rightSelect;
       }
     } else {
-      // Fallback to r.* if right columns unknown
       sql += ",\n  r.*";
     }
   } else {
-    // Fallback to SELECT * if columns not tracked
     sql += "  l.*,\n  r.*";
   }
 
   sql += `\nFROM {{ ref('${leftModel}') }} AS l\n`;
   sql += `${joinType} JOIN {{ ref('${rightModel}') }} AS r\n`;
 
-  if (joinCondition && joinCondition.leftColumn && joinCondition.rightColumn) {
+  if (joinCondition?.leftColumn && joinCondition?.rightColumn) {
     sql += `  ON l.${joinCondition.leftColumn} ${joinCondition.operator} r.${joinCondition.rightColumn}`;
   } else {
     sql += `  ON TRUE -- Configure join condition`;
@@ -1021,15 +961,14 @@ function generateJoinSQL(
 }
 
 /**
- * Générer SQL pour aggregate
+ * Generates SQL for aggregate/GROUP BY operations.
  */
 function generateAggregateSQL(
   parentModels: string[],
-  params: Record<string, any>
+  params: Record<string, unknown>
 ): string {
   const fromModel = parentModels[0] || "upstream";
 
-  // New format: columns is an array of column names
   const groupByColumns = Array.isArray(params.columns)
     ? params.columns
     : typeof params.columns === "string"
@@ -1039,7 +978,6 @@ function generateAggregateSQL(
         .filter(Boolean)
     : [];
 
-  // New format: aggregations is an array of Aggregation objects
   interface Aggregation {
     id: string;
     function: string;
@@ -1053,31 +991,25 @@ function generateAggregateSQL(
 
   let sql = "SELECT\n";
 
-  // Add group by columns
   if (groupByColumns.length > 0) {
     sql += groupByColumns.map((col) => `  ${col}`).join(",\n");
 
-    // Add comma if we have aggregations
     if (aggregations.length > 0) {
       sql += ",\n";
     }
   }
 
-  // Add aggregations
   if (aggregations.length > 0) {
     sql += aggregations
       .map((agg) => {
-        // Handle COUNT(DISTINCT column)
         const funcCall =
           agg.function === "COUNT(DISTINCT)"
             ? `COUNT(DISTINCT ${agg.column})`
             : `${agg.function}(${agg.column})`;
 
-        // ALWAYS add alias (generate if not provided)
         const alias =
           agg.alias ||
           (() => {
-            // Generate alias: sum_sales_amount, count_all, etc.
             const cleanCol = agg.column
               .replace(/[*]/g, "all")
               .replace(/\s+/g, "_");
@@ -1091,14 +1023,12 @@ function generateAggregateSQL(
       .join(",\n");
   }
 
-  // If no columns and no aggregations, select all
   if (groupByColumns.length === 0 && aggregations.length === 0) {
     sql += "  *";
   }
 
   sql += `\nFROM {{ ref('${fromModel}') }}`;
 
-  // Add GROUP BY clause
   if (groupByColumns.length > 0) {
     sql += "\nGROUP BY\n";
     sql += groupByColumns
@@ -1113,23 +1043,20 @@ function generateAggregateSQL(
 }
 
 /**
- * Générer SQL pour union
+ * Generates SQL for UNION operations.
  */
 function generateUnionSQL(parentModels: string[]): string {
-  let sql = parentModels
+  return parentModels
     .map((model) => `SELECT * FROM {{ ref('${model}') }}`)
     .join("\n\nUNION ALL\n\n");
-
-  return sql;
 }
 
 /**
- * Générer SQL pour output (Model Output)
+ * Generates SQL for the final output model.
  */
 function generateOutputSQL(parentModels: string[], columns: string[]): string {
   const fromModel = parentModels[0] || "upstream";
 
-  // Generate explicit column selection
   let sql = "SELECT\n";
   if (columns.length > 0 && columns[0] !== "*") {
     const columnList = columns.map((col) => `  ${col}`).join(",\n");
@@ -1143,8 +1070,12 @@ function generateOutputSQL(parentModels: string[], columns: string[]): string {
   return sql;
 }
 
+// =============================================================================
+// YAML Generation
+// =============================================================================
+
 /**
- * Générer sources.yml pour un nœud Database et ses tables connectées
+ * Generates sources.yml for a database node and its connected tables.
  */
 function generateSourcesYmlForDatabaseNode(
   database: string,
@@ -1170,15 +1101,14 @@ ${tables}
 }
 
 /**
- * Générer une description informative pour un modèle
+ * Generates a descriptive documentation string for a model.
  */
 function generateModelDescription(node: ClassifiedNode): string {
   const opId = node.node.data.operation.id;
   const params = node.node.data.params || {};
   const deps = node.dependencies;
-  const timestamp = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
+  const timestamp = new Date().toISOString().split("T")[0];
 
-  // Helper to get upstream model names
   const getUpstreamInfo = () => {
     if (deps.length === 0) return "";
     if (deps.length === 1)
@@ -1189,18 +1119,25 @@ function generateModelDescription(node: ClassifiedNode): string {
     return `\n  Sources: ${deps.length} upstream models`;
   };
 
-  // Helper to extract and format filter conditions
-  const formatFilterConditions = (condition: any, depth = 0): string[] => {
+  const formatFilterConditions = (condition: unknown): string[] => {
     const conditions: string[] = [];
 
     if (!condition) return conditions;
 
-    if (condition.type === "condition") {
-      const { column, operator, value } = condition;
+    const typedCondition = condition as {
+      type?: string;
+      column?: string;
+      operator?: string;
+      value?: unknown;
+      children?: unknown[];
+    };
+
+    if (typedCondition.type === "condition") {
+      const { column, operator, value } = typedCondition;
       conditions.push(`${column} ${operator} ${value}`);
-    } else if (condition.type === "group" && condition.children) {
-      condition.children.forEach((child: any, i: number) => {
-        const childConditions = formatFilterConditions(child, depth + 1);
+    } else if (typedCondition.type === "group" && typedCondition.children) {
+      typedCondition.children.forEach((child) => {
+        const childConditions = formatFilterConditions(child);
         conditions.push(...childConditions);
       });
     }
@@ -1251,7 +1188,6 @@ function generateModelDescription(node: ClassifiedNode): string {
       let desc = "Aggregated data";
 
       if (groupColsRaw) {
-        // Handle both string and array formats
         const cols = Array.isArray(groupColsRaw)
           ? groupColsRaw
           : typeof groupColsRaw === "string"
@@ -1266,7 +1202,7 @@ function generateModelDescription(node: ClassifiedNode): string {
         }
       }
 
-      if (aggs && Array.isArray(aggs) && aggs.length > 0) {
+      if (aggs?.length) {
         desc += `\n  \n  Aggregations:`;
         aggs.forEach((agg) => {
           const typedAgg = agg as {
@@ -1290,9 +1226,9 @@ function generateModelDescription(node: ClassifiedNode): string {
         | Array<{ original: string; alias?: string }>
         | undefined;
 
-      if (columns && columns.length > 0) {
+      if (columns?.length) {
         const colList = columns
-          .slice(0, 10) // Limit to first 10 to avoid too long descriptions
+          .slice(0, 10)
           .map((col) => {
             if (col.alias && col.alias !== col.original) {
               return `  - ${col.original} → ${col.alias}`;
@@ -1315,9 +1251,8 @@ function generateModelDescription(node: ClassifiedNode): string {
       return `Selected columns${getUpstreamInfo()}\n  Generated: ${timestamp}`;
     }
 
-    case "union": {
+    case "union":
       return `Union of ${deps.length} datasets\n  Combines all rows from upstream models\n  \n  Generated: ${timestamp}`;
-    }
 
     case "dbt-model": {
       const modelName = params.name || "output";
@@ -1338,27 +1273,18 @@ function generateModelDescription(node: ClassifiedNode): string {
 }
 
 /**
- * Générer schema.yml global
+ * Generates schema.yml with model and column documentation.
  */
-function generateSchemaYml(
-  classifiedNodes: ClassifiedNode[],
-  projectName: string
-): string {
+function generateSchemaYml(classifiedNodes: ClassifiedNode[]): string {
   const modelEntries = classifiedNodes
-    .filter((cn) => cn.layer !== "staging") // Sources are documented in sources.yml
+    .filter((cn) => cn.layer !== "staging")
     .map((cn) => {
       const columns = cn.columns || [];
-
-      // Find primary key - look for first column ending with '_id'
       const pkCol = columns.find((col) => col.endsWith("_id")) || columns[0];
-
-      // Generate informative description
       const description = generateModelDescription(cn);
 
       let entry = `  - name: ${cn.modelName}\n`;
-      // Use YAML literal block style (|) for multiline descriptions
       entry += `    description: |\n`;
-      // Indent each line of the description by 6 spaces (4 for description + 2 for | content)
       const descriptionLines = description.split("\n");
       descriptionLines.forEach((line) => {
         entry += `      ${line}\n`;
@@ -1366,13 +1292,11 @@ function generateSchemaYml(
 
       entry += `    columns:\n`;
 
-      // Document all columns
       if (columns.length > 0 && columns[0] !== "*") {
         columns.forEach((col) => {
           entry += `      - name: ${col}\n`;
           entry += `        description: "${col} column"\n`;
 
-          // Add tests only on the primary key
           if (col === pkCol) {
             entry += `        tests:\n`;
             entry += `          - unique\n`;
@@ -1380,7 +1304,6 @@ function generateSchemaYml(
           }
         });
       } else {
-        // Fallback si pas de colonnes trackées
         entry += `      - name: id\n`;
         entry += `        description: "Primary identifier"\n`;
         entry += `        tests:\n`;
@@ -1396,7 +1319,7 @@ function generateSchemaYml(
 }
 
 /**
- * Générer dbt_project.yml
+ * Generates dbt_project.yml configuration file.
  */
 function generateDbtProjectYml(projectName: string): string {
   const sanitizedName = sanitizeName(projectName);
@@ -1429,8 +1352,13 @@ models:
 `;
 }
 
+// =============================================================================
+// Utilities
+// =============================================================================
+
 /**
- * Sanitize un nom pour le rendre compatible SQL/dbt
+ * Sanitizes a name for SQL/dbt compatibility.
+ * Converts to lowercase, replaces invalid characters with underscores.
  */
 function sanitizeName(name: string): string {
   return name

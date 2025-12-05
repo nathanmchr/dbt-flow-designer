@@ -1,13 +1,28 @@
+/**
+ * @fileoverview Inspector panel component for node configuration.
+ *
+ * Provides a resizable side panel for editing operation parameters:
+ * - Column selection and renaming
+ * - Filter condition builder
+ * - Join condition configuration
+ * - Aggregation builder
+ * - Database adapter selection
+ *
+ * Features auto-updating column references when upstream columns are renamed.
+ */
+
 import { useEffect, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import type {
   OperationDefinition,
   OperationParam,
-} from "../definitions/operations";
-import type { ColumnDefinition } from "../definitions/columnPropagation";
-import { DBT_ADAPTERS } from "../definitions/dbtAdapters";
-import FilterBuilder, { type FilterGroup } from "./FilterBuilder";
-import AggregationsBuilder, { type Aggregation } from "./AggregationsBuilder";
+} from "../../definitions/operations";
+import type { ColumnDefinition } from "../../definitions/columnPropagation";
+import { DBT_ADAPTERS } from "../../definitions/dbtAdapters";
+import FilterBuilder, { type FilterGroup } from "../ui/FilterBuilder";
+import AggregationsBuilder, {
+  type Aggregation,
+} from "../ui/AggregationsBuilder";
 
 type InspectorNode = {
   id: string;
@@ -172,6 +187,7 @@ function Inspector({
       return acc;
     }, {});
     setTimeout(() => setFormValues(initialValues), 0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [renderedNode?.id]);
 
   // Auto-update column references when columns are renamed
@@ -344,7 +360,8 @@ function Inspector({
 
     // Update previous columns for next iteration
     setTimeout(() => setPreviousAvailableColumns(availableColumns), 0);
-  }, [availableColumns, renderedNode, formValues]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [availableColumns, renderedNode]);
 
   const paramFields = useMemo(
     () => renderedNode?.operation.params ?? [],

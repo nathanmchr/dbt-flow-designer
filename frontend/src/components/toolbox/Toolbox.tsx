@@ -1,16 +1,27 @@
+/**
+ * @fileoverview Toolbox component displaying available operations.
+ *
+ * Provides a collapsible sidebar with categorized operations that
+ * users can add to the flowchart by clicking.
+ */
+
 import { useState, useEffect, useMemo } from "react";
 import {
   OPERATION_DEFS,
   type OperationDefinition,
-} from "../definitions/operations";
-import ToolboxNode from "./nodes/ToolboxNode";
+} from "../../definitions/operations";
+import ToolboxNode from "../flowchart/nodes/ToolboxNode";
 
 interface ToolboxProps {
   onAddNode: (operation: OperationDefinition) => void;
 }
 
+/**
+ * Toolbox sidebar component with categorized operations.
+ * Features resizable panel, collapsible categories, and smooth animations.
+ */
 function Toolbox({ onAddNode }: ToolboxProps) {
-  // Grouper les opérations par catégorie (exclure Model Output)
+  // Group operations by category (exclude Model Output)
   const categories = useMemo(
     () =>
       OPERATION_DEFS.filter((op) => op.id !== "dbt-model").reduce<
@@ -36,7 +47,7 @@ function Toolbox({ onAddNode }: ToolboxProps) {
 
   const [isOpen, setIsOpen] = useState(true);
   const [isClosing, setIsClosing] = useState(false);
-  const [width, setWidth] = useState(280); // w-70 = 280px
+  const [width, setWidth] = useState(280);
   const [isResizing, setIsResizing] = useState(false);
 
   const toggleCategory = (cat: string) => {
@@ -48,23 +59,22 @@ function Toolbox({ onAddNode }: ToolboxProps) {
 
   const handleOpenToolbox = () => {
     setIsClosing(true);
-    setIsOpen(true); // Open immediately so both animations play together
+    setIsOpen(true);
     setTimeout(() => {
-      setIsClosing(false); // Clean up after animation completes
-    }, 200); // Match animation duration
+      setIsClosing(false);
+    }, 200);
   };
 
-  // Handle resizing
+  // Handle resize drag
   useEffect(() => {
     if (!isResizing) return;
 
-    // Prevent text selection and fix cursor during resize
     document.body.classList.add("resizing");
     document.body.style.userSelect = "none";
 
     const handleMouseMove = (e: MouseEvent) => {
-      const newWidth = e.clientX - 16; // 16px for left margin
-      setWidth(Math.max(280, Math.min(newWidth, 800))); // min 280px, max 800px
+      const newWidth = e.clientX - 16;
+      setWidth(Math.max(280, Math.min(newWidth, 800)));
     };
 
     const handleMouseUp = () => {
@@ -77,7 +87,6 @@ function Toolbox({ onAddNode }: ToolboxProps) {
     return () => {
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
-      // Restore default styles
       document.body.classList.remove("resizing");
       document.body.style.userSelect = "";
     };
@@ -86,14 +95,12 @@ function Toolbox({ onAddNode }: ToolboxProps) {
   const enterEase = "cubic-bezier(0.22,1,0.36,1)";
   const exitEase = "cubic-bezier(0.5,0.05,0.8,0.25)";
 
-  // Calculate number of columns based on width for consistent grid across all categories
+  // Calculate grid columns based on panel width
   const gridCols = useMemo(() => {
-    // Account for padding and scrollbar (approx 40px total)
     const availableWidth = width - 40;
     const minColWidth = 240;
-    const gap = 16; // gap-4 = 1rem = 16px
+    const gap = 16;
 
-    // Calculate how many columns fit
     const cols = Math.max(
       1,
       Math.floor((availableWidth + gap) / (minColWidth + gap))

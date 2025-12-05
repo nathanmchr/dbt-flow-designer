@@ -1,4 +1,6 @@
-import React from "react";
+/**
+ * @fileoverview Operation icons for the flowchart nodes.
+ */
 
 export const getOperationIcon = (id: string, className: string = "w-6 h-6") => {
   switch (id) {

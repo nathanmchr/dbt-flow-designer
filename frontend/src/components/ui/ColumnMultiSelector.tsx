@@ -1,3 +1,10 @@
+/**
+ * @fileoverview Column multi-selector component for GROUP BY operations.
+ *
+ * Provides a grid-based selection interface for choosing
+ * multiple columns from the available upstream columns.
+ */
+
 interface ColumnMultiSelectorProps {
   selectedColumns: string[];
   onChange: (columns: string[]) => void;

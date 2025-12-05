@@ -1,12 +1,23 @@
+/**
+ * @fileoverview Toolbox node component for the operations sidebar.
+ *
+ * Displays an operation card with icon, label, and description.
+ * Includes hover effect with add button overlay.
+ */
+
 import { memo } from "react";
-import type { OperationDefinition } from "../../definitions/operations";
-import { getOperationIcon } from "../icons";
+import type { OperationDefinition } from "../../../definitions/operations";
+import { getOperationIcon } from "../../ui/OperationIcons";
 
 interface ToolboxNodeProps {
   operation: OperationDefinition;
   onAddNode: (operation: OperationDefinition) => void;
 }
 
+/**
+ * Individual operation card in the toolbox.
+ * Memoized for performance as the toolbox contains many nodes.
+ */
 const ToolboxNode = memo(function ToolboxNode({
   operation,
   onAddNode,
@@ -16,7 +27,7 @@ const ToolboxNode = memo(function ToolboxNode({
       className="relative toolbox-node group w-full h-full cursor-pointer"
       onClick={() => onAddNode(operation)}
     >
-      {/* Overlay */}
+      {/* Hover overlay with add icon */}
       <div className="absolute inset-0 flex justify-center items-center pointer-events-none z-20">
         <svg
           className="w-10 h-10 opacity-0 group-hover:opacity-100 transition-opacity"
@@ -37,8 +48,8 @@ const ToolboxNode = memo(function ToolboxNode({
           <circle
             cx="12"
             cy="12"
-            r="10" // Cercle reste le même
-            className="fill-gray-50 dark:fill-gray-600 opacity-80"
+            r="10"
+            className="fill-gray-100 dark:fill-gray-700 opacity-80"
             filter="url(#blur-filter)"
           />
 
@@ -61,7 +72,7 @@ const ToolboxNode = memo(function ToolboxNode({
         </svg>
       </div>
 
-      {/* Content */}
+      {/* Card content */}
       <div className="flex flex-col items-start relative z-10">
         <div className="flex items-center">
           <div className="node-icon w-10 h-10">

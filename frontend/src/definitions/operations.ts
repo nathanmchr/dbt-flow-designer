@@ -1,9 +1,14 @@
-// ------------------------------------------------------------
-// Global operation type definitions
-// ------------------------------------------------------------
+/**
+ * @fileoverview Operation definitions for the dbt Flow Designer.
+ *
+ * Defines all available SQL operations that can be used in the flowchart,
+ * including their parameters, categories, and connection requirements.
+ */
 
+/** Operation category types */
 export type OperationCategory = "source" | "transform" | "output" | "advanced";
 
+/** Parameter definition for an operation */
 export interface OperationParam {
   name: string;
   label: string;
@@ -28,24 +33,25 @@ export interface OperationParam {
   tooltip?: string;
 }
 
+/** Complete operation definition */
 export interface OperationDefinition {
   id: string;
   label: string;
   description: string;
   category: OperationCategory;
-  inputs: number; // number of incoming connections
-  outputs: number; // number of outgoing connections
+  /** Number of incoming connections */
+  inputs: number;
+  /** Number of outgoing connections */
+  outputs: number;
   params: OperationParam[];
 }
 
-// ------------------------------------------------------------
-// All available SQL operations definitions
-// ------------------------------------------------------------
-
+/**
+ * All available SQL operations.
+ * Organized by category: source, transform, output, and advanced.
+ */
 export const OPERATION_DEFS: OperationDefinition[] = [
-  // ------------------------------------------------------------
-  // SOURCE OPERATIONS
-  // ------------------------------------------------------------
+  // ===== SOURCE OPERATIONS =====
   {
     id: "database",
     label: "Database",
@@ -108,9 +114,7 @@ export const OPERATION_DEFS: OperationDefinition[] = [
     ],
   },
 
-  // ------------------------------------------------------------
-  // TRANSFORM OPERATIONS
-  // ------------------------------------------------------------
+  // ===== TRANSFORM OPERATIONS =====
   {
     id: "select",
     label: "Select",
@@ -215,9 +219,7 @@ export const OPERATION_DEFS: OperationDefinition[] = [
     ],
   },
 
-  // ------------------------------------------------------------
-  // OUTPUT OPERATIONS
-  // ------------------------------------------------------------
+  // ===== OUTPUT OPERATIONS =====
   {
     id: "dbt-model",
     label: "Model Output",
@@ -229,9 +231,7 @@ export const OPERATION_DEFS: OperationDefinition[] = [
     params: [],
   },
 
-  // ------------------------------------------------------------
-  // ADVANCED OPERATIONS
-  // ------------------------------------------------------------
+  // ===== ADVANCED OPERATIONS =====
   {
     id: "custom-sql",
     label: "Custom SQL",

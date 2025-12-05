@@ -1,3 +1,8 @@
+/**
+ * @fileoverview Flowchart component that renders the React Flow canvas.
+ * Handles node/edge rendering, connections, and user interactions.
+ */
+
 import {
   ReactFlow,
   Background,
@@ -17,14 +22,16 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import type { OperationDefinition } from "../definitions/operations";
+import type { OperationDefinition } from "../../definitions/operations";
 import OperationNode from "./nodes/OperationNode";
 import { AnimatedEdge } from "./AnimatedEdge";
 
+/** Data structure for operation nodes */
 type OperationNodeData = {
   operation: OperationDefinition;
   params?: Record<string, unknown>;
 };
+
 type OperationNodeType = Node<OperationNodeData>;
 type OperationNodeChange = NodeChange<OperationNodeType>;
 
@@ -46,6 +53,10 @@ interface FlowchartProps {
   onNodeDragStop?: (event: React.MouseEvent, node: OperationNodeType) => void;
 }
 
+/**
+ * Main flowchart component that renders the React Flow canvas.
+ * Manages node connections, selection, and drag-and-drop interactions.
+ */
 function Flowchart({
   nodes,
   edges,
@@ -59,31 +70,43 @@ function Flowchart({
 }: FlowchartProps) {
   const nodeTypes = { operation: OperationNode };
 
-  // Appelée par les nodes pour supprimer un node
-  const handleRemoveNode = (nodeId: string) => {
-    setNodes((prev) => prev.filter((n) => n.id !== nodeId));
-    setEdges((prev) =>
-      prev.filter((e) => e.source !== nodeId && e.target !== nodeId)
-    );
-  };
+  /**
+   * Removes a node and its connected edges from the flowchart.
+   */
+  const handleRemoveNode = useCallback(
+    (nodeId: string) => {
+      setNodes((prev) => prev.filter((n) => n.id !== nodeId));
+      setEdges((prev) =>
+        prev.filter((e) => e.source !== nodeId && e.target !== nodeId)
+      );
+    },
+    [setNodes, setEdges]
+  );
 
-  // Appelée par les nodes pour configurer un node
-  const handleConfigureNode = (nodeData: {
-    id: string;
-    operation: OperationDefinition;
-    params?: Record<string, unknown>;
-  }) => {
-    onSelectNode?.(nodeData);
-  };
+  /**
+   * Opens the configuration panel for a node.
+   */
+  const handleConfigureNode = useCallback(
+    (nodeData: {
+      id: string;
+      operation: OperationDefinition;
+      params?: Record<string, unknown>;
+    }) => {
+      onSelectNode?.(nodeData);
+    },
+    [onSelectNode]
+  );
 
+  /**
+   * Handles node changes (position, selection, deletion).
+   * Prevents deletion of the Model Output node.
+   */
   const onNodesChange = useCallback(
     (changes: OperationNodeChange[]) => {
-      // Filter out deletion attempts for Model Output node
       const filteredChanges = changes.filter((change) => {
         if (change.type === "remove") {
           const nodeToRemove = nodes.find((n) => n.id === change.id);
           if (nodeToRemove?.data.operation.id === "dbt-model") {
-            // Block deletion of Model Output
             return false;
           }
         }
@@ -97,16 +120,22 @@ function Flowchart({
     [setNodes, nodes]
   );
 
+  /**
+   * Handles edge changes (selection, deletion).
+   */
   const onEdgesChange = useCallback(
     (changes: EdgeChange[]) => {
-      // Don't filter edge deletions - allow manual edge deletion
-      // Edge protection only happens implicitly through node deletion prevention
       setEdges((prev) => applyEdgeChanges(changes, prev));
     },
     [setEdges]
   );
 
-  // Validation des connexions
+  /**
+   * Validates whether a connection between two nodes is allowed.
+   * Rules:
+   * - Each handle can only have one connection
+   * - Source-table nodes can only connect from database nodes
+   */
   const isValidConnection = useCallback(
     (connection: Edge | Connection) => {
       const sourceNode = nodes.find((n) => n.id === connection.source);
@@ -114,8 +143,7 @@ function Flowchart({
 
       if (!sourceNode || !targetNode) return false;
 
-      // Règle 1: Un handle ne peut avoir qu'une seule connexion
-      // Vérifier si le handle source a déjà une connexion sortante
+      // Check if source handle already has a connection
       const sourceHandleId = connection.sourceHandle || "default";
       const sourceHasConnection = edges.some(
         (e) =>
@@ -123,7 +151,7 @@ function Flowchart({
           (e.sourceHandle || "default") === sourceHandleId
       );
 
-      // Vérifier si le handle target a déjà une connexion entrante
+      // Check if target handle already has a connection
       const targetHandleId = connection.targetHandle || "default";
       const targetHasConnection = edges.some(
         (e) =>
@@ -135,7 +163,7 @@ function Flowchart({
         return false;
       }
 
-      // Règle 2: Si la cible est un node "source-table", la source doit être un node "database"
+      // Source-table nodes can only connect from database nodes
       if (targetNode.data?.operation?.id === "source-table") {
         return sourceNode.data?.operation?.id === "database";
       }
@@ -145,14 +173,19 @@ function Flowchart({
     [nodes, edges]
   );
 
+  /**
+   * Handles new edge connections between nodes.
+   */
   const onConnect = useCallback(
     (params: Connection) =>
       setEdges((prev) => addEdge({ ...params, type: "animated" }, prev)),
     [setEdges]
   );
 
-  // ⚡ PERFORMANCE: Memoize nodesWithCallbacks to prevent recreation on every render
-  // This was causing ALL nodes to re-render during pan/zoom, making navigation laggy
+  /**
+   * Memoized nodes with callback handlers attached.
+   * Prevents unnecessary re-renders during pan/zoom operations.
+   */
   const nodesWithCallbacks = useMemo(() => {
     return nodes.map((node) => {
       if (node.data?.operation) {
@@ -203,7 +236,6 @@ function Flowchart({
         <Controls />
       </ReactFlow>
 
-      {/* Custom React Flow attribution */}
       <a
         href="https://reactflow.dev/"
         target="_blank"

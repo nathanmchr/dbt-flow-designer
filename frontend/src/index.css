@@ -1,19 +1,64 @@
+/**
+ * dbt Flow Designer - Stylesheet
+ *
+ * Organization:
+ * 1. Imports
+ * 2. CSS Variables
+ * 3. Base Layer (reset & defaults)
+ * 4. Components Layer (reusable components)
+ * 5. Utilities Layer (custom utilities)
+ * 6. Third-party Overrides (React Flow)
+ * 7. Animations
+ */
+
+/* =============================================================================
+   1. IMPORTS
+   ============================================================================= */
+
 @import "tailwindcss";
 @import "@xyflow/react/dist/style.css";
 
+/* =============================================================================
+   2. CSS VARIABLES
+   ============================================================================= */
+
+:root {
+  /* Animation timings */
+  --transition-fast: 150ms;
+  --transition-normal: 200ms;
+  --transition-slow: 300ms;
+
+  /* Scrollbar colors */
+  --scrollbar-color: #d1d5db; /* gray-300 */
+}
+
+.dark {
+  --scrollbar-color: #374151; /* gray-700 */
+}
+
+/* =============================================================================
+   3. BASE LAYER
+   ============================================================================= */
+
 @layer base {
+  /* Root styling */
   :root {
     font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
-
-    @apply bg-gray-300 dark:bg-gray-900 text-gray-700 dark:text-gray-200;
     font-synthesis: none;
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+
+    @apply bg-gray-300 text-gray-700 dark:bg-gray-900 dark:text-gray-200;
   }
 
-  /* 🌙 DARK MODE: Custom shadows with black color for better visibility */
-  /* Increased opacity for much darker, more visible shadows */
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  /* Dark mode shadows */
   .dark .shadow-md {
     box-shadow: 0 4px 6px -1px rgba(255, 255, 255, 0.7),
       0 2px 4px -2px rgba(0, 0, 0, 0.7);
@@ -33,40 +78,23 @@
     box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9);
   }
 
-  html,
-  body,
-  #root {
-    @apply h-full;
-  }
-
+  /* Interactive elements */
   button {
     @apply cursor-pointer transition-colors;
   }
 
-  header {
-    @apply absolute top-0 flex flex-1 items-center gap-4 px-6 py-4 w-full z-50 drop-shadow-xl backdrop-blur-md border-b bg-gray-200/30 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700 drop-shadow-black/7 dark:drop-shadow-black/20;
-  }
-
-  /* Lock cursor during resize operations */
-  body.resizing {
-    cursor: col-resize !important;
-  }
-
-  body.resizing * {
-    pointer-events: none !important;
-  }
-  header h1 {
-    @apply text-orange-600 font-bold text-3xl;
-  }
-
+  /* Form elements */
   input,
   select {
-    @apply min-w-0 w-full px-2 h-8 text-sm rounded-xl border shadow-inner transition-colors border-white/80 dark:border-gray-700 bg-gray-300/20 dark:bg-gray-800/10 dark:shadow-black/25;
+    @apply min-w-0 w-full h-8 px-2
+      text-sm rounded-xl
+      border shadow-inner transition-colors
+      border-white/80 bg-gray-300/20
+      dark:border-gray-700 dark:bg-gray-800/10 dark:shadow-black/25;
   }
 
   select {
     appearance: none;
-    /* Light mode arrow (gray-500: #6b7280) */
     background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
     background-repeat: no-repeat;
     background-position: right 0.5rem center;
@@ -74,105 +102,214 @@
     @apply pr-6.5 text-ellipsis;
   }
 
-  /* Dark mode arrow (gray-400: #9ca3af) */
-  :is(.dark select) {
+  .dark select {
     background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
+  }
+
+  /* Header */
+  header {
+    @apply absolute top-0 z-50
+      flex flex-1 items-center gap-4
+      w-full px-6 py-4
+      border-b backdrop-blur-md drop-shadow-xl
+      bg-gray-200/30 border-gray-100 drop-shadow-black/7
+      dark:bg-gray-800/50 dark:border-gray-700 dark:drop-shadow-black/20;
+  }
+
+  header h1 {
+    @apply text-3xl font-bold text-orange-600;
+  }
+
+  /* Resize cursor state */
+  body.resizing {
+    cursor: col-resize !important;
+  }
+
+  body.resizing * {
+    pointer-events: none !important;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 12px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: transparent;
+    margin-block: 1rem;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-color);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    transition: background-color var(--transition-fast);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-color);
+    border-width: 2px;
+  }
+
+  .inspector-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(156, 163, 175, 0.8);
   }
 }
 
+/* =============================================================================
+   4. COMPONENTS LAYER
+   ============================================================================= */
+
 @layer components {
+  /* Layout */
   .main-content {
     @apply flex flex-row w-full min-h-[calc(100vh-5rem)] px-4;
   }
 
-  .panel {
-    @apply my-4 rounded-3xl overflow-x-clip backdrop-blur-md drop-shadow-xl dark:drop-shadow-black/20 border bg-gray-200/30 dark:bg-gray-800/50 border-gray-100 dark:border-gray-700;
-  }
-
   .flowchart {
-    @apply absolute top-0 left-0 w-full h-full;
+    @apply absolute inset-0;
   }
 
+  /* Panels */
+  .panel {
+    @apply my-4 rounded-3xl overflow-x-clip
+      border backdrop-blur-md drop-shadow-xl
+      bg-gray-200/30 border-gray-100
+      dark:bg-gray-800/50 dark:border-gray-700 dark:drop-shadow-black/20;
+  }
+
+  /* Cards */
+  .card {
+    @apply rounded-2xl shadow-md border
+      bg-white/60 border-gray-100
+      dark:bg-gray-800/60 dark:border-gray-700;
+  }
+
+  /* Nodes */
   .node {
-    /* ⚡ PERFORMANCE: box-shadow instead of drop-shadow (5-10x faster!) */
-    /* Dark mode uses same size shadows, just darker (avoids Safari glitch) */
-    @apply px-6 py-4 rounded-2xl shadow-lg hover:shadow-xl border border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-[#dbdee3] dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700;
-    transition: background-color 150ms, border-color 150ms, box-shadow 150ms;
-  }
-
-  .toolbox-node {
-    /* ⚡ PERFORMANCE: box-shadow instead of drop-shadow (5-10x faster!) */
-    @apply px-6 py-4 rounded-2xl shadow-md hover:shadow-lg border border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-100/40 dark:bg-gray-700/40 hover:bg-white/60 dark:hover:bg-gray-500/40;
-    transition: background-color 150ms, border-color 150ms, box-shadow 150ms;
+    @apply px-6 py-4 rounded-2xl
+      shadow-lg hover:shadow-xl border
+      border-gray-100 hover:border-white
+      bg-[#dbdee3] hover:bg-gray-100
+      dark:border-gray-700 dark:hover:border-gray-500
+      dark:bg-gray-800 dark:hover:bg-gray-700;
+    transition: background-color var(--transition-fast),
+      border-color var(--transition-fast), box-shadow var(--transition-fast);
   }
 
   .node.selected {
-    @apply shadow-xl border-white dark:border-gray-500 bg-gray-100 dark:bg-gray-700;
+    @apply shadow-xl
+      border-white bg-gray-100
+      dark:border-gray-500 dark:bg-gray-700;
   }
 
+  .toolbox-node {
+    @apply px-6 py-4 rounded-2xl
+      shadow-md hover:shadow-lg border
+      border-gray-100 hover:border-white
+      bg-gray-100/40 hover:bg-white/60
+      dark:border-gray-700 dark:hover:border-gray-500
+      dark:bg-gray-700/40 dark:hover:bg-gray-500/40;
+    transition: background-color var(--transition-fast),
+      border-color var(--transition-fast), box-shadow var(--transition-fast);
+  }
+
+  /* Node icons */
   .node-icon {
-    /* ⚡ PERFORMANCE: box-shadow + same size in dark (avoids Safari glitch) */
-    @apply rounded-full flex justify-center items-center shadow-md border border-gray-100 dark:border-gray-700 bg-gray-100/50 dark:bg-gray-700/50;
+    @apply rounded-full flex justify-center items-center
+      shadow-md border
+      border-gray-100 bg-gray-100/50
+      dark:border-gray-700 dark:bg-gray-700/50;
   }
 
   .node:hover .node-icon,
-  .node:hover .normal-button,
-  .toolbox-node:hover .node-icon,
-  .toolbox-node:hover .normal-button {
+  .toolbox-node:hover .node-icon {
     @apply border-gray-50 dark:border-gray-600;
   }
 
   .node.selected .node-icon {
-    @apply shadow-lg border-white dark:border-gray-500 bg-white dark:bg-gray-500/50;
-  }
-
-  .node:hover .normal-button {
-    @apply border-gray-50 dark:border-gray-600 hover:border-white dark:hover:border-gray-500;
-  }
-
-  .node.selected .normal-button {
-    @apply border-gray-50 dark:border-gray-600 hover:border-white dark:hover:border-gray-500;
+    @apply shadow-lg
+      border-white bg-white
+      dark:border-gray-500 dark:bg-gray-500/50;
   }
 
   .node.selected .node-icon svg {
     @apply stroke-orange-400;
   }
 
-  .card {
-    /* ⚡ PERFORMANCE: box-shadow */
-    @apply shadow-md rounded-2xl border border-gray-100 dark:border-gray-700 bg-white/60 dark:bg-gray-800/60;
+  /* Buttons */
+  .normal-button {
+    @apply rounded-full font-semibold
+      shadow-md hover:shadow-lg border
+      text-gray-500 hover:text-gray-400
+      border-gray-100 hover:border-white
+      bg-gray-100/50 hover:bg-white/50
+      dark:text-gray-400 dark:hover:text-gray-200
+      dark:border-gray-700 dark:hover:border-gray-500
+      dark:bg-gray-700/50 dark:hover:bg-gray-500/50;
   }
 
-  .normal-button {
-    /* ⚡ PERFORMANCE: box-shadow (same size in dark, just darker) */
-    @apply rounded-full font-semibold shadow-md hover:shadow-lg border text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-100/50 dark:bg-gray-700/50 hover:bg-white/50 dark:hover:bg-gray-500/50;
+  .node:hover .normal-button,
+  .toolbox-node:hover .normal-button {
+    @apply border-gray-50 dark:border-gray-600;
+  }
+
+  .node.selected .normal-button {
+    @apply border-gray-50 hover:border-white
+      dark:border-gray-600 dark:hover:border-gray-500;
   }
 
   .highlight-button {
-    /* ⚡ PERFORMANCE: box-shadow (same size in dark, just darker) */
-    @apply rounded-full font-semibold shadow-md hover:shadow-lg text-gray-200 bg-orange-600 hover:bg-orange-400 hover:shadow-orange-400/20 dark:border-gray-700;
+    @apply rounded-full font-semibold
+      shadow-md hover:shadow-lg
+      text-gray-200
+      bg-orange-600 hover:bg-orange-400
+      hover:shadow-orange-400/20
+      dark:border-gray-700;
   }
 
   .delete-button {
-    /* ⚡ PERFORMANCE: box-shadow (same size in dark, just darker) */
-    @apply rounded-full font-semibold shadow-md hover:shadow-lg border text-red-600 dark:text-red-500 hover:text-red-400 dark:hover:text-red-200 border-gray-100 hover:border-red-50 dark:border-gray-700 dark:hover:border-red-300/40 bg-gray-100/50 dark:bg-gray-700/50 hover:bg-red-100/50 dark:hover:bg-red-200/40;
+    @apply rounded-full font-semibold
+      shadow-md hover:shadow-lg border
+      text-red-600 hover:text-red-400
+      border-gray-100 hover:border-red-50
+      bg-gray-100/50 hover:bg-red-100/50
+      dark:text-red-500 dark:hover:text-red-200
+      dark:border-gray-700 dark:hover:border-red-300/40
+      dark:bg-gray-700/50 dark:hover:bg-red-200/40;
   }
 
+  /* Tooltip */
   .tooltip-content {
-    /* ⚡ PERFORMANCE: box-shadow + removed backdrop-blur-lg (same size in dark) */
-    @apply fixed z-9999 w-fit max-w-60 px-3 py-2 pointer-events-none text-xs rounded-xl shadow-xl border border-gray-100 dark:border-gray-700 bg-white/95 dark:bg-gray-700/95;
+    @apply fixed z-9999 pointer-events-none
+      w-fit max-w-60 px-3 py-2
+      text-xs rounded-xl
+      shadow-xl border backdrop-blur-md
+      border-gray-100 bg-white/80
+      dark:border-gray-700 dark:bg-gray-700/80;
   }
 
+  /* Filter builder */
   .filter-group {
-    @apply bg-gray-100/50 dark:bg-gray-900/30 border-2 border-dashed border-gray-300 dark:border-gray-600 rounded-2xl;
+    @apply p-3 rounded-2xl
+      border-2 border-dashed
+      bg-gray-100/50 border-gray-300
+      dark:bg-gray-900/30 dark:border-gray-600;
   }
 
+  /* Toggle switch */
   .toggle-track {
-    @apply shadow-inner rounded-full border dark:shadow-black/30 transition-colors duration-300 bg-gray-200/50 dark:bg-gray-700/30 border-gray-100 dark:border-gray-700;
+    @apply rounded-full shadow-inner border
+      transition-colors duration-300
+      bg-gray-200/50 border-gray-100
+      dark:bg-gray-700/30 dark:border-gray-700 dark:shadow-black/30;
   }
 
   .toggle-thumb {
-    @apply rounded-full drop-shadow-md dark:drop-shadow-black/25 bg-orange-600 transition-colors;
+    @apply rounded-full transition-colors
+      drop-shadow-md bg-orange-600
+      dark:drop-shadow-black/25;
   }
 
   .toggle-track:hover .toggle-thumb {
@@ -180,14 +317,88 @@
   }
 }
 
+/* =============================================================================
+   5. UTILITIES LAYER
+   ============================================================================= */
+
+@layer utilities {
+  /* Mask gradients for scrollable areas */
+  .mask-gradient-top {
+    mask-image: linear-gradient(to bottom, transparent 0px, black 16px),
+      linear-gradient(to left, black, black);
+    mask-size: calc(100% - 10px) 100%, 10px 100%;
+    mask-position: left top, right top;
+    mask-repeat: no-repeat;
+  }
+
+  .mask-gradient-both {
+    --fade-start: 0;
+    --fade-mid: 32px;
+    --fade-end-start: calc(100% - 60px);
+    --fade-end: 100%;
+
+    mask-image: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0) var(--fade-start),
+        rgba(0, 0, 0, 0.7) 16px,
+        rgba(0, 0, 0, 0.85) 20.8px,
+        rgba(0, 0, 0, 0.925) 24.16px,
+        rgba(0, 0, 0, 0.963) 26.512px,
+        rgba(0, 0, 0, 0.981) 28.16px,
+        rgba(0, 0, 0, 1) var(--fade-mid),
+        rgba(0, 0, 0, 1) var(--fade-end-start),
+        rgba(0, 0, 0, 0.981) calc(100% - 52.8px),
+        rgba(0, 0, 0, 0.963) calc(100% - 49.71px),
+        rgba(0, 0, 0, 0.925) calc(100% - 45.3px),
+        rgba(0, 0, 0, 0.85) calc(100% - 39px),
+        rgba(0, 0, 0, 0.7) calc(100% - 30px),
+        rgba(0, 0, 0, 0) var(--fade-end)
+      ),
+      linear-gradient(to left, black, black);
+    mask-size: calc(100% - 10px) 100%, 10px 100%;
+    mask-position: left top, right top;
+    mask-repeat: no-repeat;
+  }
+}
+
+/* =============================================================================
+   6. THIRD-PARTY OVERRIDES (React Flow)
+   ============================================================================= */
+
+/* React Flow theme variables */
+.react-flow {
+  --xy-handle-background-color-default: #9ca3af; /* gray-400 */
+  --xy-handle-border-color-default: #9ca3af; /* gray-400 */
+}
+
+@media (prefers-color-scheme: dark) {
+  .react-flow {
+    --xy-background-pattern-dots-color-default: #4b5563; /* gray-600 */
+    --xy-handle-background-color-default: #4b5563; /* gray-600 */
+    --xy-handle-border-color-default: #4b5563; /* gray-600 */
+  }
+}
+
+/* Controls */
 .react-flow .react-flow__controls {
-  @apply flex-row gap-2 shadow-none fixed! bottom-[0.1rem] left-[calc(50%-2.3rem)];
+  @apply flex-row gap-2 shadow-none
+    fixed! bottom-[0.1rem] left-[calc(50%-2.3rem)];
 }
 
 .react-flow .react-flow__controls-button {
-  @apply rounded-full font-semibold backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-100/50 dark:bg-gray-700/50 hover:bg-white/50 dark:hover:bg-gray-500/50 dark:drop-shadow-black/30 hover:drop-shadow-white dark:hover:drop-shadow-white/10;
+  @apply rounded-full font-semibold
+    backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border
+    text-gray-500 hover:text-gray-400
+    border-gray-100 hover:border-white
+    bg-gray-100/50 hover:bg-white/50
+    dark:text-gray-400 dark:hover:text-gray-200
+    dark:border-gray-700 dark:hover:border-gray-500
+    dark:bg-gray-700/50 dark:hover:bg-gray-500/50
+    dark:drop-shadow-black/30
+    hover:drop-shadow-white dark:hover:drop-shadow-white/10;
 }
 
+/* Edges */
 .react-flow__edge path {
   @apply stroke-gray-400! dark:stroke-gray-600!;
 }
@@ -204,7 +415,6 @@
   @apply fill-gray-200! dark:fill-gray-400! transition-colors;
 }
 
-/* Edge sélectionné */
 .react-flow__edge.selected path {
   @apply stroke-white! dark:stroke-gray-300!;
 }
@@ -213,90 +423,37 @@
   @apply fill-white! dark:fill-gray-300!;
 }
 
-/* Ligne de connexion en cours de tracé */
 .react-flow__connectionline path {
   @apply stroke-gray-400! dark:stroke-gray-600!;
 }
 
+/* Hide default attribution */
 .react-flow__attribution {
   display: none !important;
 }
 
+/* Custom attribution link */
 .flowchart-attribution {
-  @apply fixed bottom-[1.04rem] left-1/2 -translate-x-1/2 -ml-17 px-2 py-1 text-[0.7rem] hover:underline cursor-pointer rounded-lg backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border text-gray-500 dark:text-gray-400 hover:text-gray-400 dark:hover:text-gray-200 border-gray-100 hover:border-white dark:border-gray-700 dark:hover:border-gray-500 bg-gray-100/50 dark:bg-gray-700/50 hover:bg-white/50 dark:hover:bg-gray-500/50 dark:drop-shadow-black/30 hover:drop-shadow-white dark:hover:drop-shadow-white/10;
+  @apply fixed bottom-[1.04rem] left-1/2 -translate-x-1/2 -ml-17
+    px-2 py-1
+    text-[0.7rem] rounded-lg
+    cursor-pointer hover:underline
+    backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border
+    text-gray-500 hover:text-gray-400
+    border-gray-100 hover:border-white
+    bg-gray-100/50 hover:bg-white/50
+    dark:text-gray-400 dark:hover:text-gray-200
+    dark:border-gray-700 dark:hover:border-gray-500
+    dark:bg-gray-700/50 dark:hover:bg-gray-500/50
+    dark:drop-shadow-black/30
+    hover:drop-shadow-white dark:hover:drop-shadow-white/10;
 }
 
-.react-flow {
-  --xy-handle-background-color-default: theme("colors.gray.400");
-  --xy-handle-border-color-default: theme("colors.gray.400");
-}
+/* =============================================================================
+   7. ANIMATIONS
+   ============================================================================= */
 
-@media (prefers-color-scheme: dark) {
-  .react-flow {
-    --xy-background-pattern-dots-color-default: theme("colors.gray.600");
-    --xy-handle-background-color-default: theme("colors.gray.600");
-    --xy-handle-border-color-default: theme("colors.gray.600");
-  }
-}
-
-.mask-gradient-top {
-  mask-image: linear-gradient(to bottom, transparent 0px, black 16px),
-    linear-gradient(to left, black, black);
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0px, black 16px),
-    linear-gradient(to left, black, black);
-  mask-size: calc(100% - 10px) 100%, 10px 100%;
-  mask-position: left top, right top;
-  mask-repeat: no-repeat;
-  -webkit-mask-size: calc(100% - 10px) 100%, 10px 100%;
-  -webkit-mask-position: left top, right top;
-  -webkit-mask-repeat: no-repeat;
-}
-
-.mask-gradient-both {
-  mask-image: linear-gradient(
-      to bottom,
-      rgba(0, 0, 0, 0) 0px,
-      rgba(0, 0, 0, 0.7) 16px,
-      rgba(0, 0, 0, 0.85) 20.8px,
-      rgba(0, 0, 0, 0.925) 24.16px,
-      rgba(0, 0, 0, 0.963) 26.512px,
-      rgba(0, 0, 0, 0.981) 28.16px,
-      rgba(0, 0, 0, 1) 32px,
-      rgba(0, 0, 0, 1) calc(100% - 60px),
-      rgba(0, 0, 0, 0.981) calc(100% - 52.8px),
-      rgba(0, 0, 0, 0.963) calc(100% - 49.71px),
-      rgba(0, 0, 0, 0.925) calc(100% - 45.3px),
-      rgba(0, 0, 0, 0.85) calc(100% - 39px),
-      rgba(0, 0, 0, 0.7) calc(100% - 30px),
-      rgba(0, 0, 0, 0) 100%
-    ),
-    linear-gradient(to left, black, black);
-  -webkit-mask-image: linear-gradient(
-      to bottom,
-      rgba(0, 0, 0, 0) 0px,
-      rgba(0, 0, 0, 0.7) 16px,
-      rgba(0, 0, 0, 0.85) 20.8px,
-      rgba(0, 0, 0, 0.925) 24.16px,
-      rgba(0, 0, 0, 0.963) 26.512px,
-      rgba(0, 0, 0, 0.981) 28.16px,
-      rgba(0, 0, 0, 1) 32px,
-      rgba(0, 0, 0, 1) calc(100% - 60px),
-      rgba(0, 0, 0, 0.981) calc(100% - 52.8px),
-      rgba(0, 0, 0, 0.963) calc(100% - 49.71px),
-      rgba(0, 0, 0, 0.925) calc(100% - 45.3px),
-      rgba(0, 0, 0, 0.85) calc(100% - 39px),
-      rgba(0, 0, 0, 0.7) calc(100% - 30px),
-      rgba(0, 0, 0, 0) 100%
-    ),
-    linear-gradient(to left, black, black);
-  mask-size: calc(100% - 10px) 100%, 10px 100%;
-  mask-position: left top, right top;
-  mask-repeat: no-repeat;
-  -webkit-mask-size: calc(100% - 10px) 100%, 10px 100%;
-  -webkit-mask-position: left top, right top;
-  -webkit-mask-repeat: no-repeat;
-}
-
+/* Slide animations for toolbox toggle */
 @keyframes slideInFromLeft {
   from {
     transform: translateX(-100%) translateY(-50%);
@@ -319,35 +476,7 @@
   }
 }
 
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 12px;
-}
-
-::-webkit-scrollbar-track {
-  background-color: transparent;
-  margin-top: 1rem;
-  margin-bottom: 1rem;
-}
-
-::-webkit-scrollbar-thumb {
-  background-color: theme("colors.gray.300");
-  border-radius: 9999px;
-  transition: background-color 150ms;
-  border: 3px solid transparent;
-  background-clip: content-box;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  background-color: theme("colors.gray.300");
-  border: 2px solid transparent;
-}
-
-.inspector-scroll::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(156, 163, 175, 0.8);
-}
-
-/* Edge Animation */
+/* Edge animation */
 @keyframes dashdraw {
   from {
     stroke-dashoffset: 40;
@@ -359,15 +488,6 @@
 
 .animated-edge-path {
   stroke-dasharray: 10 30;
+  stroke: #f97316; /* orange-500 */
   animation: dashdraw 1s linear infinite;
-  stroke: #f97316; /* Orange-500 */
-}
-
-@media (prefers-color-scheme: dark) {
-  ::-webkit-scrollbar-thumb {
-    background-color: theme("colors.gray.700");
-  }
-  ::-webkit-scrollbar-thumb:hover {
-    background-color: theme("colors.gray.700");
-  }
 }

@@ -1,4 +1,11 @@
-// No imports needed - just React types from props
+/**
+ * @fileoverview Aggregations Builder for GROUP BY operations.
+ *
+ * Provides interface for configuring SQL aggregation functions:
+ * - Supports all major SQL aggregation functions (COUNT, SUM, AVG, etc.)
+ * - Column selection and alias configuration
+ * - Auto-generates column aliases based on function and column name
+ */
 
 export interface Aggregation {
   id: string;

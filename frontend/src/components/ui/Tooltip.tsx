@@ -1,3 +1,10 @@
+/**
+ * @fileoverview Reusable tooltip component.
+ *
+ * Displays contextual tooltips on hover using React Portal
+ * for proper layering and positioning.
+ */
+
 import React, { useState, useRef, useEffect } from "react";
 import { createPortal } from "react-dom";
 

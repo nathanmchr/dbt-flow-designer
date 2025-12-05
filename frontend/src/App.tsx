@@ -1,9 +1,17 @@
+/**
+ * @fileoverview Main application component for the dbt Flow Designer.
+ *
+ * Manages the overall application state including:
+ * - Flowchart nodes and edges
+ * - Undo/redo history
+ * - Model name and export functionality
+ * - Node selection and inspector integration
+ */
+
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { Edge, Node } from "@xyflow/react";
-import Flowchart from "./components/Flowchart";
-import Inspector from "./components/Inspector";
-import Toolbox from "./components/Toolbox";
+import { Flowchart, Inspector, Toolbox, Tooltip } from "./components";
 import {
   OPERATION_DEFS,
   type OperationDefinition,
@@ -12,7 +20,6 @@ import {
   getAvailableColumns,
   type ColumnDefinition,
 } from "./definitions/columnPropagation";
-import { Tooltip } from "./components/Tooltip";
 import { generateDbtModel } from "./generators/dbtGenerator";
 
 type OperationNodeData = {
@@ -84,6 +91,7 @@ function App() {
         setNodes([newNode]);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Sync existing nodes with latest operation definitions (e.g. label changes)
@@ -240,6 +248,7 @@ function App() {
 
       setHistory(newHistory);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, edges]);
 
   // Update undo/redo descriptions when history changes
@@ -261,6 +270,7 @@ function App() {
     } else {
       setRedoDescription("");
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history, historyIndex]);
 
   // Undo function
@@ -326,6 +336,7 @@ function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [historyIndex, history]);
 
   const handleAddNode = (operation: OperationDefinition) => {
