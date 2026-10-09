@@ -17,6 +17,8 @@ npm-debug.log*
 
 # Dependencies
 node_modules/
+__pycache__/
+*.py[cod]
 
 # Build
 dist/
@@ -32,3 +34,17 @@ build/
 *.tmp
 *.temp
 .cache/
+
+# Local dbt preview workspace (generated models, profiles and DuckDB data)
+backend/dbt_project/
+
+# Application-owned encryption key (generated locally, never committed)
+backend/.data/
+
+# Persistent local PostgreSQL test instance
+.local/
+
+# Local automation state and generated audit artifacts (kept on disk)
+.playwright-cli/
+.serena/
+output/
