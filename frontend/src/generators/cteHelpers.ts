@@ -12,119 +12,8 @@ import type {
   NodeGroup,
   CTE,
 } from "./dbtGenerator";
-
-/** Filter node structure for building WHERE clauses */
-interface FilterNode {
-  type: "group" | "condition";
-  children?: FilterNode[];
-  operators?: string[];
-  column?: string;
-  operator?: string;
-  value?: string | number | boolean;
-}
-
-/**
- * Formats a value based on its column type for SQL generation.
- * Simplified version to avoid circular dependency with dbtGenerator.
- */
-function formatValueByType(
-  column: string,
-  value: unknown,
-  columnTypes: Map<string, string>
-): string | number | boolean {
-  const type = columnTypes.get(column);
-
-  // Fallback to smart guessing if type is unknown
-  if (!type) {
-    if (typeof value === "number") return value;
-    if (typeof value === "boolean") return value;
-    if (typeof value === "string") {
-      const num = parseFloat(value);
-      if (!isNaN(num) && value.trim() === num.toString()) return num;
-      return `'${value}'`;
-    }
-    return `'${String(value)}'`;
-  }
-
-  // Numeric types: no quotes
-  if (
-    type === "INTEGER" ||
-    type === "FLOAT" ||
-    type === "NUMERIC" ||
-    type === "DECIMAL" ||
-    type === "BIGINT"
-  ) {
-    if (typeof value === "number") return value;
-    const num = typeof value === "string" ? parseFloat(value) : NaN;
-    return isNaN(num) ? `'${String(value)}'` : num;
-  }
-
-  // Boolean types: no quotes
-  if (type === "BOOLEAN" || type === "BOOL") {
-    if (typeof value === "boolean") return value;
-    if (value === "true" || value === "1" || value === 1) return true;
-    if (value === "false" || value === "0" || value === 0) return false;
-    return false;
-  }
-
-  // Dates and strings: with quotes
-  return `'${String(value)}'`;
-}
-
-/**
- * Recursively builds SQL filter conditions from a filter tree.
- */
-function buildFilterSQL(
-  node: FilterNode | null | undefined,
-  columnTypes: Map<string, string>
-): string {
-  if (!node) return "";
-
-  if (node.type === "group") {
-    const children = node.children || [];
-    if (children.length === 0) return "";
-
-    const parts: string[] = [];
-    for (let i = 0; i < children.length; i++) {
-      const childSQL = buildFilterSQL(children[i], columnTypes);
-      if (childSQL) {
-        if (i > 0) {
-          const op = node.operators?.[i - 1] || "AND";
-          parts.push(op);
-        }
-        parts.push(childSQL);
-      }
-    }
-
-    if (parts.length === 0) return "";
-
-    // Add parentheses for multiple conditions or OR operators
-    const hasMultipleConditions =
-      parts.filter((p) => p !== "AND" && p !== "OR").length > 1;
-    const hasOrOperator = parts.includes("OR");
-
-    if (hasMultipleConditions || hasOrOperator) {
-      return `(${parts.join(" ")})`;
-    }
-
-    return parts.join(" ");
-  }
-
-  if (node.type === "condition") {
-    const { column, operator, value } = node;
-    if (!column || !operator) return "";
-
-    // Handle NULL operators
-    if (operator === "IS NULL" || operator === "IS NOT NULL") {
-      return `${column} ${operator}`;
-    }
-
-    const formattedValue = formatValueByType(column, value, columnTypes);
-    return `${column} ${operator} ${formattedValue}`;
-  }
-
-  return "";
-}
+import { buildFilterSQL, type FilterNode } from "./filterSql.ts";
+import { quoteIdentifier } from "./sqlIdentifiers.ts";
 
 /**
  * Generates a CTE name based on the operation type and position.
@@ -181,6 +70,15 @@ export function generateCTEBody(
       return generateFilterCTEBody(fromRef, params, cn.columns, columnTypes);
     case "select":
       return generateSelectCTEBody(fromRef, params, cn.columns);
+    case "sort": {
+      const column = String(params.column || "").trim();
+      const direction = params.direction === "DESC" ? "DESC" : "ASC";
+      return `SELECT *\nFROM ${fromRef}\nORDER BY ${quoteIdentifier(column)} ${direction}`;
+    }
+    case "custom-sql":
+      return String(params.sql || "")
+        .replace(/\{\{\s*parent\s*\}\}/gi, fromRef)
+        .replace(/\{\{\s*source\s*\}\}/gi, fromRef);
     default:
       return `SELECT *\nFROM ${fromRef}`;
   }
@@ -198,7 +96,9 @@ function generateFilterCTEBody(
   let sql = "SELECT\n";
 
   if (columns.length > 0 && columns[0] !== "*") {
-    sql += columns.map((col) => `    ${col}`).join(",\n");
+    sql += columns
+      .map((col) => `    ${quoteIdentifier(col)}`)
+      .join(",\n");
   } else {
     sql += "    *";
   }
@@ -229,7 +129,9 @@ function generateSelectCTEBody(
   let sql = "SELECT\n";
 
   if (columns.length > 0 && columns[0] !== "*") {
-    sql += columns.map((col) => `    ${col}`).join(",\n");
+    sql += columns
+      .map((col) => `    ${quoteIdentifier(col)}`)
+      .join(",\n");
   } else {
     sql += "    *";
   }

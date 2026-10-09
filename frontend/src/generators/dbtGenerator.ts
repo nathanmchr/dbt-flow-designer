@@ -12,8 +12,11 @@
 
 import type { Node, Edge } from "@xyflow/react";
 import type { OperationDefinition } from "../definitions/operations";
-import { PipelineOptimizer } from "./pipelineOptimizer";
-import { generateCombinedSQL } from "./cteHelpers";
+import { PipelineOptimizer } from "./pipelineOptimizer.ts";
+import { generateCombinedSQL } from "./cteHelpers.ts";
+import { buildFilterSQL, type FilterNode } from "./filterSql.ts";
+import { quoteColumn, quoteIdentifier } from "./sqlIdentifiers.ts";
+import { getDefaultDatabaseSchema } from "../definitions/dbtAdapters.ts";
 
 // =============================================================================
 // Types
@@ -67,9 +70,14 @@ export type CTE = {
   columns: string[];
 };
 
+type SourceReference = {
+  sourceName: string;
+  tableName: string;
+};
+
 /** Generator options */
 export interface GeneratorOptions {
-  /** Enable hybrid pipeline optimization (default: true) */
+  /** Combine compatible steps in one file. dbt ephemeral models already inline by default. */
   optimizePipeline?: boolean;
 }
 
@@ -91,8 +99,7 @@ function buildColumnTypeRegistry(
 
     if (
       opId === "database" ||
-      opId === "source-table" ||
-      opId === "source-manual"
+      opId === "source-table"
     ) {
       const columns = node.data.params?.columns as
         | Array<{ name: string; type: string; alias?: string }>
@@ -100,9 +107,10 @@ function buildColumnTypeRegistry(
 
       if (columns && Array.isArray(columns)) {
         columns.forEach((col) => {
-          registry.set(col.name, col.type);
+          const type = col.type?.toUpperCase() || "VARCHAR";
+          registry.set(col.name, type);
           if (col.alias?.trim()) {
-            registry.set(col.alias, col.type);
+            registry.set(col.alias, type);
           }
         });
       }
@@ -110,81 +118,6 @@ function buildColumnTypeRegistry(
   });
 
   return registry;
-}
-
-// =============================================================================
-// Value Formatting
-// =============================================================================
-
-/**
- * Formats a value based on its column type for SQL generation.
- * Handles numeric, boolean, date, and string types appropriately.
- */
-function formatValueByColumnType(
-  column: string,
-  value: unknown,
-  columnTypes: Map<string, string>
-): string | number | boolean {
-  const type = columnTypes.get(column);
-
-  if (!type) {
-    return smartFormatValue(value);
-  }
-
-  // Numeric types: no quotes
-  if (
-    type === "INTEGER" ||
-    type === "FLOAT" ||
-    type === "NUMERIC" ||
-    type === "DECIMAL" ||
-    type === "BIGINT"
-  ) {
-    if (typeof value === "number") return value;
-    if (typeof value === "string") {
-      const num = parseFloat(value);
-      return isNaN(num) ? `'${value}'` : num;
-    }
-    return value as string | number | boolean;
-  }
-
-  // Boolean types: no quotes
-  if (type === "BOOLEAN" || type === "BOOL") {
-    if (typeof value === "boolean") return value;
-    if (value === "true" || value === "1" || value === 1) return true;
-    if (value === "false" || value === "0" || value === 0) return false;
-    return value as string | number | boolean;
-  }
-
-  // Date and timestamp types: with quotes
-  if (type === "DATE" || type === "TIMESTAMP" || type === "DATETIME") {
-    return `'${value}'`;
-  }
-
-  // String types: with quotes
-  return `'${value}'`;
-}
-
-/**
- * Smart value formatting fallback when column type is unknown.
- * Infers type from the value itself.
- */
-function smartFormatValue(value: unknown): string | number | boolean {
-  if (typeof value === "number") return value;
-  if (typeof value === "boolean") return value;
-
-  if (typeof value === "string") {
-    // Already quoted
-    if (value.startsWith("'") && value.endsWith("'")) return value;
-
-    // Try to parse as number
-    const num = parseFloat(value);
-    if (!isNaN(num) && value.trim() === num.toString()) return num;
-
-    // Default to quoted string
-    return `'${value}'`;
-  }
-
-  return value as string | number | boolean;
 }
 
 // =============================================================================
@@ -204,8 +137,7 @@ function getModelColumns(
   const params = node.data.params || {};
 
   switch (opId) {
-    case "source-table":
-    case "source-manual": {
+    case "source-table": {
       const columns = params.columns as
         | Array<{ name: string; alias?: string }>
         | undefined;
@@ -231,7 +163,8 @@ function getModelColumns(
       return ["*"];
     }
 
-    case "filter": {
+    case "filter":
+    case "sort": {
       if (dependencies.length > 0) {
         const parentNode = allClassified.find(
           (cn) => cn.node.id === dependencies[0]
@@ -371,7 +304,7 @@ export function generateDbtModel(
   projectName: string,
   options: GeneratorOptions = {}
 ): DbtModelOutput {
-  const { optimizePipeline = true } = options;
+  const { optimizePipeline = false } = options;
 
   const files: GeneratedFile[] = [];
   const errors: string[] = [];
@@ -383,65 +316,68 @@ export function generateDbtModel(
       return { files, errors };
     }
 
-    const outputNode = nodes.find((n) => n.data.operation.id === "dbt-model");
-    if (!outputNode) {
-      errors.push("No Model Output node found");
+    const outputNodes = nodes.filter(
+      (node) => node.data.operation.id === "dbt-model"
+    );
+    if (outputNodes.length !== 1) {
+      errors.push(
+        outputNodes.length === 0
+          ? "No Model Output node found"
+          : "A flow must contain exactly one Model Output node"
+      );
       return { files, errors };
     }
+    const outputNode = outputNodes[0];
 
-    // Build column type registry
-    const columnTypes = buildColumnTypeRegistry(nodes);
-
-    // Build dependency graph
     const dependencyGraph = buildDependencyGraph(edges);
+    const reachableNodeIds = collectReachableNodeIds(
+      outputNode.id,
+      dependencyGraph,
+      new Map(nodes.map((node) => [node.id, node])),
+      errors
+    );
+    const relevantNodes = nodes.filter((node) => reachableNodeIds.has(node.id));
+    const relevantEdges = edges.filter(
+      (edge) =>
+        reachableNodeIds.has(edge.source) && reachableNodeIds.has(edge.target)
+    );
+
+    validateFlow(relevantNodes, dependencyGraph, errors);
+    if (!sanitizeName(projectName)) {
+      errors.push("The model name must contain at least one letter or number");
+    }
+    if (errors.length > 0) return { files, errors };
+
+    const columnTypes = buildColumnTypeRegistry(relevantNodes);
+    const sourceConfiguration = buildSourceConfiguration(
+      relevantNodes,
+      relevantEdges
+    );
+    files.push(...sourceConfiguration.files);
 
     // Classify all nodes
     const classifiedNodes = classifyNodes(
-      nodes,
-      edges,
+      relevantNodes,
+      relevantEdges,
       dependencyGraph,
       outputNode,
-      projectName
+      projectName,
+      sourceConfiguration.references
     );
-
-    // Generate sources.yml for each database node
-    const databaseNodes = nodes.filter(
-      (n) => n.data.operation.id === "database"
-    );
-    databaseNodes.forEach((dbNode) => {
-      const connectedTableNodes = edges
-        .filter((edge) => edge.source === dbNode.id)
-        .map((edge) => nodes.find((n) => n.id === edge.target))
-        .filter(
-          (n) => n && n.data.operation.id === "source-table"
-        ) as Node<OperationNodeData>[];
-
-      if (connectedTableNodes.length > 0) {
-        const adapterConfig = dbNode.data.params?.adapter as
-          | { type: string; config?: Record<string, unknown> }
-          | undefined;
-        const dbName =
-          adapterConfig?.config?.database ||
-          adapterConfig?.type ||
-          sanitizeName(dbNode.id);
-        const schema = adapterConfig?.config?.schema || "public";
-
-        const content = generateSourcesYmlForDatabaseNode(
-          String(dbName),
-          String(schema),
-          connectedTableNodes
-        );
-        files.push({
-          path: `models/staging/${sanitizeName(String(dbName))}/sources.yml`,
-          content,
-        });
-      }
-    });
+    validateClassifiedNodes(classifiedNodes, errors);
+    if (errors.length > 0) return { files: [], errors };
 
     // Generate SQL files
+    let schemaNodes = classifiedNodes;
     if (optimizePipeline) {
       const optimizer = new PipelineOptimizer(dependencyGraph);
       const optimizedGroups = optimizer.optimizePipeline(classifiedNodes);
+      const generatedModelNames = new Map<string, string>();
+      optimizedGroups.forEach((group) => {
+        group.nodes.forEach((node) => {
+          generatedModelNames.set(node.id, group.groupName);
+        });
+      });
 
       optimizedGroups.forEach((group) => {
         let sql: string;
@@ -457,20 +393,44 @@ export function generateDbtModel(
           const cn = classifiedNodes.find(
             (c) => c.node.id === group.nodes[0].id
           )!;
-          sql = generateSQLForNode(cn, classifiedNodes, columnTypes);
+          sql = generateSQLForNode(
+            cn,
+            classifiedNodes,
+            columnTypes,
+            sourceConfiguration.references,
+            generatedModelNames
+          );
         }
 
         files.push({ path: group.filePath, content: sql });
       });
+
+      schemaNodes = optimizedGroups.map((group) => {
+        const lastNode = group.nodes[group.nodes.length - 1];
+        const classified = classifiedNodes.find(
+          (candidate) => candidate.node.id === lastNode.id
+        )!;
+        return {
+          ...classified,
+          modelName: group.groupName,
+          filePath: group.filePath,
+          columns: group.columns,
+        };
+      });
     } else {
       classifiedNodes.forEach((cn) => {
-        const sql = generateSQLForNode(cn, classifiedNodes, columnTypes);
+        const sql = generateSQLForNode(
+          cn,
+          classifiedNodes,
+          columnTypes,
+          sourceConfiguration.references
+        );
         files.push({ path: cn.filePath, content: sql });
       });
     }
 
     // Generate schema.yml
-    const schemaYml = generateSchemaYml(classifiedNodes);
+    const schemaYml = generateSchemaYml(schemaNodes);
     files.push({ path: `models/schema.yml`, content: schemaYml });
 
     // Generate dbt_project.yml
@@ -496,15 +456,255 @@ export function generateDbtModel(
  */
 function buildDependencyGraph(edges: Edge[]): Map<string, string[]> {
   const graph = new Map<string, string[]>();
+  const incomingEdges = new Map<string, Array<{ edge: Edge; index: number }>>();
 
-  edges.forEach((edge) => {
-    if (!graph.has(edge.target)) {
-      graph.set(edge.target, []);
-    }
-    graph.get(edge.target)!.push(edge.source);
+  edges.forEach((edge, index) => {
+    const incoming = incomingEdges.get(edge.target) || [];
+    incoming.push({ edge, index });
+    incomingEdges.set(edge.target, incoming);
+  });
+
+  incomingEdges.forEach((incoming, target) => {
+    incoming.sort((left, right) => {
+      const getHandleIndex = (edge: Edge) => {
+        const match = edge.targetHandle?.match(/^input-(\d+)$/);
+        return match ? Number(match[1]) : Number.MAX_SAFE_INTEGER;
+      };
+      const handleOrder = getHandleIndex(left.edge) - getHandleIndex(right.edge);
+      return handleOrder || left.index - right.index;
+    });
+    graph.set(
+      target,
+      incoming.map(({ edge }) => edge.source)
+    );
   });
 
   return graph;
+}
+
+function collectReachableNodeIds(
+  outputNodeId: string,
+  dependencyGraph: Map<string, string[]>,
+  nodeMap: Map<string, Node<OperationNodeData>>,
+  errors: string[]
+): Set<string> {
+  const reachable = new Set<string>();
+  const visiting = new Set<string>();
+
+  const visit = (nodeId: string) => {
+    if (visiting.has(nodeId)) {
+      errors.push(`Cycle detected at node '${nodeId}'`);
+      return;
+    }
+    if (reachable.has(nodeId)) return;
+    if (!nodeMap.has(nodeId)) {
+      errors.push(`Connection references missing node '${nodeId}'`);
+      return;
+    }
+
+    visiting.add(nodeId);
+    (dependencyGraph.get(nodeId) || []).forEach(visit);
+    visiting.delete(nodeId);
+    reachable.add(nodeId);
+  };
+
+  visit(outputNodeId);
+  return reachable;
+}
+
+function validateFlow(
+  nodes: Node<OperationNodeData>[],
+  dependencyGraph: Map<string, string[]>,
+  errors: string[]
+): void {
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+
+  nodes.forEach((node) => {
+    const operation = node.data.operation;
+    const dependencies = dependencyGraph.get(node.id) || [];
+
+    if (dependencies.length !== operation.inputs) {
+      errors.push(
+        `${operation.label} '${node.id}' expects ${operation.inputs} input(s), received ${dependencies.length}`
+      );
+    }
+
+    dependencies.forEach((dependencyId) => {
+      if (!nodeMap.has(dependencyId)) {
+        errors.push(`Node '${node.id}' references missing input '${dependencyId}'`);
+      }
+    });
+
+    for (const parameter of operation.params.filter((param) => param.required)) {
+      const value = node.data.params?.[parameter.name];
+      const isMissing =
+        value === undefined ||
+        value === null ||
+        value === "" ||
+        (Array.isArray(value) && value.length === 0) ||
+        (typeof value === "object" &&
+          !Array.isArray(value) &&
+          Object.keys(value).length === 0);
+      if (isMissing) {
+        errors.push(
+          `${operation.label} '${node.id}' is missing required parameter '${parameter.name}'`
+        );
+      }
+    }
+
+    if (operation.id === "database") {
+      const adapter = node.data.params?.adapter as
+        | Record<string, unknown>
+        | undefined;
+      if (!adapter?.type) {
+        errors.push(`Database '${node.id}' has no configured adapter`);
+      }
+    }
+
+    if (operation.id === "source-table") {
+      const parent = nodeMap.get(dependencies[0]);
+      if (parent && parent.data.operation.id !== "database") {
+        errors.push(`Table '${node.id}' must be connected to a Database node`);
+      }
+    }
+
+    if (operation.id === "filter") {
+      const condition = node.data.params?.condition as FilterNode | undefined;
+      if (!buildFilterSQL(condition, new Map())) {
+        errors.push(`Filter '${node.id}' has no valid condition`);
+      }
+    }
+
+    if (operation.id === "join") {
+      const joinType = node.data.params?.type;
+      const joinCondition = node.data.params?.on as
+        | { leftColumn?: string; operator?: string; rightColumn?: string }
+        | undefined;
+      const allowedJoinTypes = new Set(["INNER", "LEFT", "RIGHT", "FULL"]);
+      const allowedJoinOperators = new Set(["=", "!=", "<>", "<", ">", "<=", ">="]);
+      if (!allowedJoinTypes.has(String(joinType))) {
+        errors.push(`Join '${node.id}' has an unsupported join type`);
+      }
+      if (
+        !joinCondition?.leftColumn ||
+        !joinCondition.rightColumn ||
+        !allowedJoinOperators.has(String(joinCondition.operator))
+      ) {
+        errors.push(`Join '${node.id}' has an incomplete or invalid condition`);
+      }
+    }
+
+    if (operation.id === "group-by") {
+      const aggregations = node.data.params?.aggregations;
+      const allowedAggregationFunctions = new Set([
+        "SUM",
+        "AVG",
+        "COUNT",
+        "COUNT(DISTINCT)",
+        "MIN",
+        "MAX",
+      ]);
+      if (Array.isArray(aggregations)) {
+        aggregations.forEach((aggregation, index) => {
+          const typedAggregation = aggregation as {
+            function?: string;
+            column?: string;
+          };
+          if (
+            !typedAggregation.column ||
+            !allowedAggregationFunctions.has(String(typedAggregation.function))
+          ) {
+            errors.push(
+              `Group By '${node.id}' has an invalid aggregation at position ${index + 1}`
+            );
+          }
+        });
+      }
+    }
+  });
+}
+
+function validateClassifiedNodes(
+  classifiedNodes: ClassifiedNode[],
+  errors: string[]
+): void {
+  const modelNames = new Set<string>();
+  const filePaths = new Set<string>();
+
+  classifiedNodes.forEach((classified) => {
+    if (modelNames.has(classified.modelName)) {
+      errors.push(`Duplicate generated model name '${classified.modelName}'`);
+    }
+    if (filePaths.has(classified.filePath)) {
+      errors.push(`Duplicate generated file path '${classified.filePath}'`);
+    }
+    modelNames.add(classified.modelName);
+    filePaths.add(classified.filePath);
+  });
+}
+
+function yamlValue(value: unknown): string {
+  return JSON.stringify(String(value));
+}
+
+function buildSourceConfiguration(
+  nodes: Node<OperationNodeData>[],
+  edges: Edge[]
+): { references: Map<string, SourceReference>; files: GeneratedFile[] } {
+  const references = new Map<string, SourceReference>();
+  const files: GeneratedFile[] = [];
+  const nodeMap = new Map(nodes.map((node) => [node.id, node]));
+  const databaseNodes = nodes.filter(
+    (node) => node.data.operation.id === "database"
+  );
+
+  databaseNodes.forEach((databaseNode) => {
+    const adapter = databaseNode.data.params?.adapter as
+      | ({ type?: string; config?: Record<string, unknown> } &
+          Record<string, unknown>)
+      | undefined;
+    const config = adapter?.config || adapter || {};
+    const baseSourceName = sanitizeName(String(adapter?.type || "source"));
+    const duplicateCount = databaseNodes.filter((candidate) => {
+      const candidateAdapter = candidate.data.params?.adapter as
+        | { type?: string }
+        | undefined;
+      return sanitizeName(String(candidateAdapter?.type || "source")) === baseSourceName;
+    }).length;
+    const sourceName =
+      duplicateCount > 1
+        ? `${baseSourceName}_${sanitizeName(databaseNode.id)}`
+        : baseSourceName;
+    const database =
+      config.database || config.dbname || config.project || undefined;
+    const schema = config.schema || config.dataset || getDefaultDatabaseSchema(String(adapter?.type || ""));
+    const tableNodes = edges
+      .filter((edge) => edge.source === databaseNode.id)
+      .map((edge) => nodeMap.get(edge.target))
+      .filter(
+        (node): node is Node<OperationNodeData> =>
+          Boolean(node && node.data.operation.id === "source-table")
+      );
+
+    tableNodes.forEach((tableNode) => {
+      const tableName = String(tableNode.data.params?.table || "");
+      references.set(tableNode.id, { sourceName, tableName });
+    });
+
+    if (tableNodes.length > 0) {
+      files.push({
+        path: `models/staging/${sourceName}/sources.yml`,
+        content: generateSourcesYmlForDatabaseNode(
+          sourceName,
+          database ? String(database) : undefined,
+          String(schema),
+          tableNodes
+        ),
+      });
+    }
+  });
+
+  return { references, files };
 }
 
 // =============================================================================
@@ -520,11 +720,14 @@ function classifyNodes(
   _edges: Edge[],
   dependencyGraph: Map<string, string[]>,
   outputNode: Node<OperationNodeData>,
-  outputModelName: string
+  outputModelName: string,
+  sourceReferences: Map<string, SourceReference>
 ): ClassifiedNode[] {
   const classified: ClassifiedNode[] = [];
   const nodeMap = new Map(nodes.map((n) => [n.id, n]));
   const processed = new Set<string>();
+
+  const usedModelNames = new Set<string>();
 
   const classifyNode = (node: Node<OperationNodeData>) => {
     if (processed.has(node.id)) return;
@@ -550,17 +753,20 @@ function classifyNodes(
     let modelName: string;
     let filePath: string;
 
-    if (opId === "source-table" || opId === "source-manual") {
+    if (opId === "source-table") {
       layer = "staging";
       const tableName =
         node.data.params?.table ||
         node.data.params?.tableName ||
         node.data.params?.name ||
         "unknown";
-      const database = node.data.params?.database || "default";
+      const sourceName =
+        sourceReferences.get(node.id)?.sourceName ||
+        node.data.params?.database ||
+        "default";
       modelName = `stg_${sanitizeName(String(tableName))}`;
       filePath = `models/staging/${sanitizeName(
-        String(database)
+        String(sourceName)
       )}/${modelName}.sql`;
     } else if (node.id === outputNode.id) {
       layer = "mart";
@@ -575,10 +781,17 @@ function classifyNodes(
         dependencyGraph,
         classified
       );
+      const baseName = modelName;
+      let suffix = 2;
+      while (usedModelNames.has(modelName)) {
+        modelName = `${baseName}_${suffix++}`;
+      }
       filePath = `models/intermediate/${modelName}.sql`;
     }
 
     const columns = getModelColumns(node, dependencies, classified);
+
+    usedModelNames.add(modelName);
 
     classified.push({
       node,
@@ -687,7 +900,9 @@ function generateIntermediateName(
 function generateSQLForNode(
   classified: ClassifiedNode,
   allClassified: ClassifiedNode[],
-  columnTypes: Map<string, string>
+  columnTypes: Map<string, string>,
+  sourceReferences: Map<string, SourceReference>,
+  generatedModelNames: Map<string, string> = new Map()
 ): string {
   const { node, layer, modelName, dependencies } = classified;
   const opId = node.data.operation.id;
@@ -695,6 +910,8 @@ function generateSQLForNode(
 
   const parentModels = dependencies
     .map((depId) => {
+      const generatedName = generatedModelNames.get(depId);
+      if (generatedName) return generatedName;
       const parent = allClassified.find((cn) => cn.node.id === depId);
       return parent ? parent.modelName : null;
     })
@@ -707,8 +924,7 @@ function generateSQLForNode(
 
   switch (opId) {
     case "source-table":
-    case "source-manual":
-      return sql + generateStagingSQL(params);
+      return sql + generateStagingSQL(params, sourceReferences.get(node.id));
 
     case "select":
       return sql + generateSelectSQL(parentModels, params);
@@ -729,6 +945,12 @@ function generateSQLForNode(
     case "union":
       return sql + generateUnionSQL(parentModels);
 
+    case "sort":
+      return sql + generateSortSQL(parentModels, params);
+
+    case "custom-sql":
+      return sql + generateCustomSQL(parentModels, params);
+
     case "dbt-model":
       return sql + generateOutputSQL(parentModels, classified.columns);
 
@@ -742,10 +964,18 @@ function generateSQLForNode(
 /**
  * Generates SQL for staging models (source tables).
  */
-function generateStagingSQL(params: Record<string, unknown>): string {
+function generateStagingSQL(
+  params: Record<string, unknown>,
+  sourceReference?: SourceReference
+): string {
   const tableName =
-    params.table || params.tableName || params.name || "unknown";
-  const database = params.database || "raw";
+    sourceReference?.tableName ||
+    params.table ||
+    params.tableName ||
+    params.name ||
+    "unknown";
+  const sourceName =
+    sourceReference?.sourceName || params.database || "source";
 
   const columns = params.columns as
     | Array<{ name: string; type: string; alias?: string }>
@@ -757,9 +987,9 @@ function generateStagingSQL(params: Record<string, unknown>): string {
     const columnList = columns
       .map((col) => {
         if (col.alias) {
-          return `  ${col.name} AS ${col.alias}`;
+          return `  ${quoteIdentifier(col.name)} AS ${quoteIdentifier(col.alias)}`;
         }
-        return `  ${col.name}`;
+        return `  ${quoteIdentifier(col.name)}`;
       })
       .join(",\n");
     sql += columnList;
@@ -767,7 +997,7 @@ function generateStagingSQL(params: Record<string, unknown>): string {
     sql += "  *";
   }
 
-  sql += `\nFROM {{ source('${database}', '${tableName}') }}`;
+  sql += `\nFROM {{ source('${sourceName}', '${tableName}') }}`;
 
   return sql;
 }
@@ -790,9 +1020,9 @@ function generateSelectSQL(
     const columnList = columns
       .map((col) => {
         if (col.alias) {
-          return `  ${col.original} AS ${col.alias}`;
+          return `  ${quoteIdentifier(col.original)} AS ${quoteIdentifier(col.alias)}`;
         }
-        return `  ${col.original}`;
+        return `  ${quoteIdentifier(col.original)}`;
       })
       .join(",\n");
     sql += columnList;
@@ -818,7 +1048,9 @@ function generateFilterSQL(
 
   let sql = "SELECT\n";
   if (columns.length > 0 && columns[0] !== "*") {
-    const columnList = columns.map((col) => `  ${col}`).join(",\n");
+    const columnList = columns
+      .map((col) => `  ${quoteIdentifier(col)}`)
+      .join(",\n");
     sql += columnList;
   } else {
     sql += "  *";
@@ -827,82 +1059,16 @@ function generateFilterSQL(
   sql += `\nFROM {{ ref('${fromModel}') }}`;
 
   if (params.condition) {
-    const whereClause = buildFilterSQL(params.condition, columnTypes);
+    const whereClause = buildFilterSQL(
+      params.condition as FilterNode,
+      columnTypes
+    );
     if (whereClause) {
       sql += `\nWHERE ${whereClause}`;
     }
   }
 
   return sql;
-}
-
-/**
- * Recursively builds SQL filter conditions from a filter tree.
- */
-function buildFilterSQL(
-  node: unknown,
-  columnTypes: Map<string, string>
-): string {
-  if (!node) return "";
-
-  const typedNode = node as {
-    type?: string;
-    column?: string;
-    operator?: string;
-    value?: unknown;
-    children?: unknown[];
-    operators?: string[];
-  };
-
-  if (typedNode.type === "condition") {
-    if (!typedNode.column) return "";
-
-    if (
-      typedNode.operator === "IS NULL" ||
-      typedNode.operator === "IS NOT NULL"
-    ) {
-      return `${typedNode.column} ${typedNode.operator}`;
-    }
-
-    const val = typedNode.value;
-    const finalVal = formatValueByColumnType(
-      typedNode.column,
-      val,
-      columnTypes
-    );
-
-    return `${typedNode.column} ${typedNode.operator} ${finalVal}`;
-  }
-
-  if (typedNode.type === "group") {
-    if (!typedNode.children || typedNode.children.length === 0) return "";
-
-    const parts: string[] = [];
-    for (let i = 0; i < typedNode.children.length; i++) {
-      const childSQL = buildFilterSQL(typedNode.children[i], columnTypes);
-      if (childSQL) {
-        if (i > 0) {
-          const op = typedNode.operators?.[i - 1] || "AND";
-          parts.push(op);
-        }
-        parts.push(childSQL);
-      }
-    }
-
-    if (parts.length === 0) return "";
-
-    const hasMultipleConditions =
-      parts.filter((p) => p !== "AND" && p !== "OR").length > 1;
-    const hasOrOperator = parts.includes("OR");
-
-    if (hasMultipleConditions || hasOrOperator) {
-      return `(${parts.join(" ")})`;
-    }
-
-    return parts.join(" ");
-  }
-
-  return "";
 }
 
 /**
@@ -929,13 +1095,15 @@ function generateJoinSQL(
   let sql = "SELECT\n";
 
   if (leftCols.length > 0 && leftCols[0] !== "*") {
-    const leftSelect = leftCols.map((col) => `  l.${col}`).join(",\n");
+    const leftSelect = leftCols
+      .map((col) => `  l.${quoteIdentifier(col)}`)
+      .join(",\n");
     sql += leftSelect;
 
     if (rightCols.length > 0 && rightCols[0] !== "*") {
       const rightSelect = rightCols
         .filter((col) => !leftCols.includes(col))
-        .map((col) => `  r.${col}`)
+        .map((col) => `  r.${quoteIdentifier(col)}`)
         .join(",\n");
 
       if (rightSelect) {
@@ -952,7 +1120,7 @@ function generateJoinSQL(
   sql += `${joinType} JOIN {{ ref('${rightModel}') }} AS r\n`;
 
   if (joinCondition?.leftColumn && joinCondition?.rightColumn) {
-    sql += `  ON l.${joinCondition.leftColumn} ${joinCondition.operator} r.${joinCondition.rightColumn}`;
+    sql += `  ON l.${quoteIdentifier(joinCondition.leftColumn)} ${joinCondition.operator} r.${quoteIdentifier(joinCondition.rightColumn)}`;
   } else {
     sql += `  ON TRUE -- Configure join condition`;
   }
@@ -992,7 +1160,9 @@ function generateAggregateSQL(
   let sql = "SELECT\n";
 
   if (groupByColumns.length > 0) {
-    sql += groupByColumns.map((col) => `  ${col}`).join(",\n");
+    sql += groupByColumns
+      .map((col) => `  ${quoteIdentifier(String(col))}`)
+      .join(",\n");
 
     if (aggregations.length > 0) {
       sql += ",\n";
@@ -1004,8 +1174,8 @@ function generateAggregateSQL(
       .map((agg) => {
         const funcCall =
           agg.function === "COUNT(DISTINCT)"
-            ? `COUNT(DISTINCT ${agg.column})`
-            : `${agg.function}(${agg.column})`;
+            ? `COUNT(DISTINCT ${quoteColumn(agg.column)})`
+            : `${agg.function}(${quoteColumn(agg.column)})`;
 
         const alias =
           agg.alias ||
@@ -1018,7 +1188,7 @@ function generateAggregateSQL(
               .replace(/\(|\)/g, "_")}_${cleanCol}`;
           })();
 
-        return `  ${funcCall} AS ${alias}`;
+        return `  ${funcCall} AS ${quoteIdentifier(alias)}`;
       })
       .join(",\n");
   }
@@ -1034,7 +1204,7 @@ function generateAggregateSQL(
     sql += groupByColumns
       .map((col, i) => {
         const comma = i < groupByColumns.length - 1 ? "," : "";
-        return `  ${col}${comma}`;
+        return `  ${quoteIdentifier(String(col))}${comma}`;
       })
       .join("\n");
   }
@@ -1051,6 +1221,30 @@ function generateUnionSQL(parentModels: string[]): string {
     .join("\n\nUNION ALL\n\n");
 }
 
+/** Generates a deterministic PostgreSQL/DuckDB ORDER BY step. */
+function generateSortSQL(
+  parentModels: string[],
+  params: Record<string, unknown>
+): string {
+  const fromModel = parentModels[0] || "upstream";
+  const column = String(params.column || "").trim();
+  const direction = params.direction === "DESC" ? "DESC" : "ASC";
+  return `SELECT *\nFROM {{ ref('${fromModel}') }}\nORDER BY ${quoteIdentifier(column)} ${direction}`;
+}
+
+/** Resolves the explicit parent placeholder used by Custom SQL nodes. */
+function generateCustomSQL(
+  parentModels: string[],
+  params: Record<string, unknown>
+): string {
+  const fromModel = parentModels[0] || "upstream";
+  const customSql = String(params.sql || "");
+  const parentReference = `{{ ref('${fromModel}') }}`;
+  return customSql
+    .replace(/\{\{\s*parent\s*\}\}/gi, parentReference)
+    .replace(/\{\{\s*source\s*\}\}/gi, parentReference);
+}
+
 /**
  * Generates SQL for the final output model.
  */
@@ -1059,7 +1253,9 @@ function generateOutputSQL(parentModels: string[], columns: string[]): string {
 
   let sql = "SELECT\n";
   if (columns.length > 0 && columns[0] !== "*") {
-    const columnList = columns.map((col) => `  ${col}`).join(",\n");
+    const columnList = columns
+      .map((col) => `  ${quoteIdentifier(col)}`)
+      .join(",\n");
     sql += columnList;
   } else {
     sql += "  *";
@@ -1078,23 +1274,30 @@ function generateOutputSQL(parentModels: string[], columns: string[]): string {
  * Generates sources.yml for a database node and its connected tables.
  */
 function generateSourcesYmlForDatabaseNode(
-  database: string,
+  sourceName: string,
+  database: string | undefined,
   schema: string,
   tableNodes: Node<OperationNodeData>[]
 ): string {
   const tables = tableNodes
     .map((node) => {
       const tableName =
-        node.data.params?.table || node.data.params?.tableName || "unknown";
-      return `      - name: ${tableName}`;
+        node.data.params?.table ||
+        node.data.params?.tableName ||
+        "unknown";
+      return `      - name: ${yamlValue(tableName)}`;
     })
     .join("\n");
+
+  const databaseLine = database
+    ? `    database: ${yamlValue(database)}\n`
+    : "";
 
   return `version: 2
 
 sources:
-  - name: ${database}
-    schema: ${schema}
+  - name: ${yamlValue(sourceName)}
+${databaseLine}    schema: ${yamlValue(schema)}
     tables:
 ${tables}
 `;
@@ -1259,8 +1462,7 @@ function generateModelDescription(node: ClassifiedNode): string {
       return `Final output model: ${modelName}\n  Mart layer model for analytics\n  ${getUpstreamInfo()}\n  Generated: ${timestamp}`;
     }
 
-    case "source-table":
-    case "source-manual": {
+    case "source-table": {
       const tableName = params.table || params.name || "source";
       return `Source table: ${tableName}\n  Raw data from source system\n  Layer: staging\n  \n  Generated: ${timestamp}`;
     }
@@ -1280,7 +1482,6 @@ function generateSchemaYml(classifiedNodes: ClassifiedNode[]): string {
     .filter((cn) => cn.layer !== "staging")
     .map((cn) => {
       const columns = cn.columns || [];
-      const pkCol = columns.find((col) => col.endsWith("_id")) || columns[0];
       const description = generateModelDescription(cn);
 
       let entry = `  - name: ${cn.modelName}\n`;
@@ -1290,25 +1491,12 @@ function generateSchemaYml(classifiedNodes: ClassifiedNode[]): string {
         entry += `      ${line}\n`;
       });
 
-      entry += `    columns:\n`;
-
       if (columns.length > 0 && columns[0] !== "*") {
+        entry += `    columns:\n`;
         columns.forEach((col) => {
-          entry += `      - name: ${col}\n`;
-          entry += `        description: "${col} column"\n`;
-
-          if (col === pkCol) {
-            entry += `        tests:\n`;
-            entry += `          - unique\n`;
-            entry += `          - not_null\n`;
-          }
+          entry += `      - name: ${yamlValue(col)}\n`;
+          entry += `        description: ${yamlValue(`${col} column`)}\n`;
         });
-      } else {
-        entry += `      - name: id\n`;
-        entry += `        description: "Primary identifier"\n`;
-        entry += `        tests:\n`;
-        entry += `          - unique\n`;
-        entry += `          - not_null\n`;
       }
 
       return entry;

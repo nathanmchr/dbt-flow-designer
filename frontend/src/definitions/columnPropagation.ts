@@ -43,11 +43,8 @@ export function getAvailableColumns(
     const sourceNode = nodes.find((node) => node.id === edge.source);
     if (!sourceNode) continue;
 
-    // If the source node is a manual source or table, get its defined columns
-    if (
-      sourceNode.data.operation.id === "source-manual" ||
-      sourceNode.data.operation.id === "source-table"
-    ) {
+    // Source tables expose the columns selected from the database.
+    if (sourceNode.data.operation.id === "source-table") {
       const columns = sourceNode.data.params?.columns as
         | Array<{ name: string; type: string; alias?: string }>
         | undefined;

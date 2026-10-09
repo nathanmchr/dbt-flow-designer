@@ -63,7 +63,6 @@ export class PipelineOptimizer {
     const opId = node.data.operation.id;
     const separateOps = [
       "source-table",
-      "source-manual",
       "join",
       "group-by",
       "aggregate",

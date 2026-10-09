@@ -20,6 +20,7 @@ export interface DBTAdapterDefinition {
   id: string;
   label: string;
   defaultPort?: number;
+  defaultSchema?: string;
   params: DBTAdapterParam[];
 }
 
@@ -28,11 +29,12 @@ export const DBT_ADAPTERS: DBTAdapterDefinition[] = [
     id: "postgres",
     label: "PostgreSQL",
     defaultPort: 5432,
+    defaultSchema: "public",
     params: [
       { name: "host", label: "Host", type: "string", required: true },
       { name: "port", label: "Port", type: "number" },
       { name: "user", label: "User", type: "string", required: true },
-      { name: "password", label: "Password", type: "password", required: true },
+      { name: "password", label: "Password", type: "password" },
       {
         name: "dbname",
         label: "Database Name",
@@ -139,5 +141,14 @@ export const DBT_ADAPTERS: DBTAdapterDefinition[] = [
     ],
   },
 ];
+
+/** Adapters currently available in the Database node UI. */
+export const ENABLED_DBT_ADAPTER_IDS: ReadonlySet<string> = new Set([
+  "postgres",
+]);
+
+export function getDefaultDatabaseSchema(adapterType: string): string {
+  return DBT_ADAPTERS.find((adapter) => adapter.id === adapterType)?.defaultSchema || "public";
+}
 
 export type DBTAdapterId = DBTAdapterDefinition["id"];

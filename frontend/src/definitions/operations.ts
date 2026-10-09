@@ -69,45 +69,22 @@ export const OPERATION_DEFS: OperationDefinition[] = [
     ],
   },
   {
-    id: "source-manual",
-    label: "Manual Table",
-    description:
-      "Define a table structure manually without a database connection.",
-    category: "source",
-    inputs: 0,
-    outputs: 1,
-    params: [
-      {
-        name: "table_name",
-        label: "Table Name",
-        type: "string",
-        required: true,
-      },
-      {
-        name: "columns",
-        label: "Column Definitions",
-        type: "column-definition",
-        required: true,
-      },
-    ],
-  },
-  {
     id: "source-table",
     label: "Table",
-    description: "Selects a table from the database as a source.",
+    description: "Selects a database table and the source columns to use.",
     category: "source",
     inputs: 1,
     outputs: 1,
     params: [
       {
         name: "table",
-        label: "Table Name",
-        type: "string",
+        label: "Table",
+        type: "table",
         required: true,
       },
       {
         name: "columns",
-        label: "Column Definitions",
+        label: "Columns",
         type: "column-definition",
         required: true,
       },
