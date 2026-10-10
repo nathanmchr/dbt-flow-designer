@@ -4,14 +4,21 @@ Database Connectors Package
 Provides connectors for various database types.
 """
 
+from typing import Callable
+
 from .base import BaseConnector, DuckDBStore
 from .postgres import PostgresConnector
-from .duckdb_connector import DuckDBConnector
 
-# Connector registry - maps adapter types to connector classes
-CONNECTORS: dict[str, type[BaseConnector]] = {
+
+def _create_duckdb_connector(credentials: dict) -> BaseConnector:
+    # Keep PostgreSQL-only execution independent of the optional engine import.
+    from .duckdb_connector import DuckDBConnector
+
+    return DuckDBConnector(credentials)
+
+# Connector registry - factories can load their engine dependencies lazily.
+CONNECTORS: dict[str, Callable[[dict], BaseConnector]] = {
     "postgres": PostgresConnector,
-    "duckdb": DuckDBConnector,
     # Add more as needed:
     # "snowflake": SnowflakeConnector,
     # "bigquery": BigQueryConnector,
@@ -32,20 +39,19 @@ def get_connector(adapter_type: str, credentials: dict) -> BaseConnector:
     Raises:
         ValueError: If adapter type is not supported
     """
-    connector_class = CONNECTORS.get(adapter_type)
-    if not connector_class:
+    connector_factory = CONNECTORS.get(adapter_type)
+    if not connector_factory:
         supported = ", ".join(CONNECTORS.keys())
         raise ValueError(
             f"Unsupported adapter type: {adapter_type}. " f"Supported: {supported}"
         )
-    return connector_class(credentials)
+    return connector_factory(credentials)
 
 
 __all__ = [
     "BaseConnector",
     "DuckDBStore",
     "PostgresConnector",
-    "DuckDBConnector",
     "get_connector",
     "CONNECTORS",
 ]

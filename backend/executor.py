@@ -1,11 +1,12 @@
 """
 Query Executor
 
-Executes SQL queries against source databases and stores results in DuckDB.
+Executes and pages native SQL queries against source databases in read-only mode.
 Handles the full pipeline execution flow.
 """
 
 from typing import Any
+import threading
 from connectors import get_connector, DuckDBStore
 
 
@@ -14,12 +15,20 @@ class QueryExecutor:
     Executes SQL queries from the flow designer.
 
     Connects to source databases, executes queries,
-    and stores results in DuckDB for display.
+    and retains only the query and credentials needed for native pagination.
     """
 
     def __init__(self):
-        """Initialize the executor with a DuckDB result store."""
-        self.result_store = DuckDBStore()
+        self.result_store = None
+        self._preview: tuple[str, dict[str, Any], str] | None = None
+        self._preview_lock = threading.RLock()
+
+    def clear_preview(self) -> None:
+        """Invalidate the previous result before attempting a new preview."""
+        with self._preview_lock:
+            self._preview = None
+            if self.result_store:
+                self.result_store.clear_results("query_result")
 
     def execute_query(
         self,
@@ -40,15 +49,29 @@ class QueryExecutor:
         Returns:
             Dict with 'columns', 'data', and 'row_count'
         """
+        connector = get_connector(adapter_type, credentials)
+        if connector.supports_native_preview:
+            with self._preview_lock:
+                self._preview = None
+                with connector:
+                    result = connector.get_results_page(sql, page_size=limit)
+                self._preview = (adapter_type, dict(credentials), sql)
+                return {
+                    "columns": result["columns"], "data": result["data"],
+                    "row_count": result["total_rows"],
+                }
+
         try:
             # Get appropriate connector
-            connector = get_connector(adapter_type, credentials)
-
             with connector:
                 # Execute query
                 results = connector.execute(sql, limit=limit)
+                self._preview = None
+                if self.result_store is None:
+                    self.result_store = DuckDBStore()
 
                 if not results:
+                    self.result_store.clear_results("query_result")
                     return {
                         "columns": [],
                         "data": [],
@@ -69,6 +92,64 @@ class QueryExecutor:
 
         except Exception as e:
             raise RuntimeError(f"Query execution failed: {str(e)}") from e
+
+    def get_results_page(
+        self,
+        page: int = 1,
+        page_size: int = 25,
+        sort_column: str | None = None,
+        sort_direction: str = "ASC",
+        search: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Get a page of results from the last native preview query.
+
+        Args:
+            page: Page number (1-indexed)
+            page_size: Rows per page
+            sort_column: Column to sort by
+            sort_direction: ASC or DESC
+            search: Search term to filter results
+
+        Returns:
+            Paginated results dict
+        """
+        with self._preview_lock:
+            preview = self._preview
+        if preview:
+            adapter_type, credentials, sql = preview
+            with get_connector(adapter_type, credentials) as connector:
+                return connector.get_results_page(
+                    sql, page=page, page_size=page_size, sort_column=sort_column,
+                    sort_direction=sort_direction, search=search,
+                )
+        if self.result_store is None or not self.result_store.table_exists("query_result"):
+            return {
+                "columns": [],
+                "data": [],
+                "total_rows": 0,
+                "page": 1,
+                "page_size": page_size,
+                "total_pages": 1,
+            }
+
+        return self.result_store.get_table_page(
+            "query_result",
+            page=page,
+            page_size=page_size,
+            sort_column=sort_column,
+            sort_direction=sort_direction,
+            search=search,
+        )
+
+    def get_column_stats(self) -> dict[str, Any]:
+        with self._preview_lock:
+            preview = self._preview
+        if preview:
+            adapter_type, credentials, sql = preview
+            with get_connector(adapter_type, credentials) as connector:
+                return connector.get_query_stats(sql)
+        return self.result_store.get_column_stats("query_result") if self.result_store else {}
 
     def test_connection(
         self,
@@ -96,7 +177,7 @@ class QueryExecutor:
         self,
         adapter_type: str,
         credentials: dict[str, Any],
-        schema: str = "public",
+        schema: str | None = None,
     ) -> list[str]:
         """
         Get list of tables from the database.
@@ -112,9 +193,9 @@ class QueryExecutor:
         connector = get_connector(adapter_type, credentials)
         with connector:
             if hasattr(connector, "get_tables"):
-                if adapter_type == "postgres":
-                    return connector.get_tables(schema)
-                return connector.get_tables()
+                return connector.get_tables(
+                    schema or credentials.get("schema") or connector.default_schema
+                )
             return []
 
     def get_columns(
@@ -122,7 +203,7 @@ class QueryExecutor:
         adapter_type: str,
         credentials: dict[str, Any],
         table: str,
-        schema: str = "public",
+        schema: str | None = None,
     ) -> list[dict[str, str]]:
         """
         Get columns for a table.
@@ -139,11 +220,13 @@ class QueryExecutor:
         connector = get_connector(adapter_type, credentials)
         with connector:
             if hasattr(connector, "get_columns"):
-                if adapter_type == "postgres":
-                    return connector.get_columns(table, schema)
-                return connector.get_columns(table)
+                return connector.get_columns(
+                    table, schema or credentials.get("schema") or connector.default_schema
+                )
             return []
 
     def close(self) -> None:
         """Close the result store."""
-        self.result_store.close()
+        self._preview = None
+        if self.result_store:
+            self.result_store.close()
