@@ -3,7 +3,16 @@
  * Handles query execution, connection testing, and schema introspection.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || "http://localhost:8000";
+import type { ProjectSecretEnvelope } from "../types";
+
+const DEFAULT_API_HOST =
+  typeof window === "undefined" || !window.location.hostname
+    ? "localhost"
+    : window.location.hostname;
+const API_BASE_URL =
+  import.meta.env?.VITE_API_URL || `http://${DEFAULT_API_HOST}:8765`;
+
+export const DEFAULT_RESULTS_PAGE_SIZE = 25;
 
 /**
  * Database credentials structure.
@@ -16,6 +25,8 @@ export interface DatabaseCredentials {
   schema_name?: string;
   user?: string;
   password?: string;
+  sslmode?: string;
+  path?: string;
   // Cloud databases
   account?: string;
   warehouse?: string;
@@ -34,11 +45,34 @@ export interface QueryResult {
 }
 
 /**
+ * Paginated query result.
+ */
+export interface PaginatedResult {
+  columns: string[];
+  data: Record<string, unknown>[];
+  total_rows: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+}
+
+/**
  * Connection test result.
  */
 export interface ConnectionTestResult {
   success: boolean;
   error?: string;
+}
+
+/**
+ * Column statistics for numeric columns.
+ */
+export interface ColumnStats {
+  min: number | null;
+  max: number | null;
+  avg: number | null;
+  nulls: number;
+  type: string;
 }
 
 /**
@@ -53,6 +87,53 @@ export interface ColumnInfo {
  * API client for the dbt Flow Designer backend.
  */
 export const api = {
+  /** Encrypt database passwords with a key dedicated to the project. */
+  async encryptProjectSecrets(
+    projectId: string,
+    passwords: Record<string, string>,
+    existingEnvelope?: ProjectSecretEnvelope | null,
+    signal?: AbortSignal
+  ): Promise<ProjectSecretEnvelope> {
+    const response = await fetch(`${API_BASE_URL}/api/project-secrets/encrypt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: projectId,
+        passwords,
+        existing_envelope: existingEnvelope || undefined,
+      }),
+      signal,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Failed to encrypt project secrets");
+    }
+
+    return response.json();
+  },
+
+  /** Unlock database passwords using the application-owned vault key. */
+  async decryptProjectSecrets(
+    envelope: ProjectSecretEnvelope,
+    signal?: AbortSignal
+  ): Promise<Record<string, string>> {
+    const response = await fetch(`${API_BASE_URL}/api/project-secrets/decrypt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ envelope }),
+      signal,
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Failed to decrypt project secrets");
+    }
+
+    const result = await response.json();
+    return result.passwords;
+  },
+
   /**
    * Execute a SQL query against a source database.
    */
@@ -76,15 +157,63 @@ export const api = {
   },
 
   /**
+   * Get a page of results from the last read-only preview query.
+   */
+  async getResultsPage(
+    page: number = 1,
+    pageSize: number = DEFAULT_RESULTS_PAGE_SIZE,
+    sortColumn?: string,
+    sortDirection: "ASC" | "DESC" = "ASC",
+    search?: string
+  ): Promise<PaginatedResult> {
+    const response = await fetch(`${API_BASE_URL}/api/results-page`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        page,
+        page_size: pageSize,
+        sort_column: sortColumn,
+        sort_direction: sortDirection,
+        search: search || null,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Failed to get results page");
+    }
+
+    return response.json();
+  },
+
+  /**
+   * Get statistics for numeric columns.
+   */
+  async getColumnStats(): Promise<Record<string, ColumnStats>> {
+    const response = await fetch(`${API_BASE_URL}/api/column-stats`, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+    });
+
+    if (!response.ok) {
+      return {};
+    }
+
+    return response.json();
+  },
+
+  /**
    * Test database connection.
    */
   async testConnection(
-    credentials: DatabaseCredentials
+    credentials: DatabaseCredentials,
+    signal?: AbortSignal
   ): Promise<ConnectionTestResult> {
     const response = await fetch(`${API_BASE_URL}/api/test-connection`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ credentials }),
+      signal,
     });
 
     if (!response.ok) {
@@ -100,12 +229,14 @@ export const api = {
    */
   async getTables(
     credentials: DatabaseCredentials,
-    schemaName: string = "public"
+    schemaName: string = "public",
+    signal?: AbortSignal
   ): Promise<string[]> {
     const response = await fetch(`${API_BASE_URL}/api/tables`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ credentials, schema_name: schemaName }),
+      signal,
     });
 
     if (!response.ok) {
@@ -123,12 +254,14 @@ export const api = {
   async getColumns(
     credentials: DatabaseCredentials,
     table: string,
-    schemaName: string = "public"
+    schemaName: string = "public",
+    signal?: AbortSignal
   ): Promise<ColumnInfo[]> {
     const response = await fetch(`${API_BASE_URL}/api/columns`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ credentials, table, schema_name: schemaName }),
+      signal,
     });
 
     if (!response.ok) {
@@ -146,9 +279,54 @@ export const api = {
   async healthCheck(): Promise<boolean> {
     try {
       const response = await fetch(`${API_BASE_URL}/health`);
-      return response.ok;
+      if (!response.ok) return false;
+      const result: unknown = await response.json();
+      return (
+        typeof result === "object" &&
+        result !== null &&
+        "service" in result &&
+        result.service === "dbt-flow-designer"
+      );
     } catch {
       return false;
     }
   },
+
+  /**
+   * Compile a dbt model and preview its SQL on the connected database.
+   */
+  async runDbtModel(
+    files: Array<{ path: string; content: string }>,
+    modelName?: string,
+    sourceCredentials?: DatabaseCredentials
+  ): Promise<DbtRunResult> {
+    const response = await fetch(`${API_BASE_URL}/api/run-dbt`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        files,
+        model_name: modelName,
+        source_credentials: sourceCredentials,
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.detail || "Failed to run dbt model");
+    }
+
+    return response.json();
+  },
 };
+
+/**
+ * Result of a dbt model run.
+ */
+export interface DbtRunResult {
+  success: boolean;
+  output?: string;
+  error?: string;
+  columns: string[];
+  data: Record<string, unknown>[];
+  row_count: number;
+}

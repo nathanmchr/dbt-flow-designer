@@ -34,14 +34,29 @@ export interface HistoryState {
   edges: Edge[];
 }
 
+export interface EncryptedBlob {
+  nonce: string;
+  ciphertext: string;
+}
+
+export interface ProjectSecretEnvelope {
+  version: "1.0";
+  algorithm: "AES-256-GCM";
+  project_id: string;
+  wrapped_key: EncryptedBlob;
+  payload: EncryptedBlob;
+}
+
 /**
  * Model data structure for save/load functionality.
  */
 export interface ModelData {
   version: string;
   timestamp: string;
+  projectId: string;
   modelName: string;
   nodes: OperationNode[];
   edges: Edge[];
   nodeCounter: number;
+  secretEnvelope?: ProjectSecretEnvelope;
 }
