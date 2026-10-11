@@ -11,18 +11,32 @@
  * Features auto-updating column references when upstream columns are renamed.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { createPortal } from "react-dom";
 import type {
   OperationDefinition,
   OperationParam,
 } from "../../definitions/operations";
 import type { ColumnDefinition } from "../../definitions/columnPropagation";
-import { DBT_ADAPTERS } from "../../definitions/dbtAdapters";
+import {
+  DBT_ADAPTERS,
+  ENABLED_DBT_ADAPTER_IDS,
+} from "../../definitions/dbtAdapters";
+import type { DatabaseCredentials } from "../../services/api";
 import FilterBuilder, { type FilterGroup } from "../ui/FilterBuilder";
 import AggregationsBuilder, {
   type Aggregation,
 } from "../ui/AggregationsBuilder";
+import SourceTableSelector, {
+  type SourceTableColumn,
+} from "./SourceTableSelector";
 
 type InspectorNode = {
   id: string;
@@ -37,6 +51,8 @@ interface InspectorProps {
   onClose: () => void;
   onDelete: (nodeId: string) => void;
   availableColumns: ColumnDefinition[];
+  sourceCredentials: DatabaseCredentials | null;
+  onLayoutChange?: (isOpen: boolean, width: number) => void;
 }
 
 function getDefaultValue(param: OperationParam) {
@@ -112,6 +128,8 @@ function Inspector({
   onClose,
   onDelete,
   availableColumns,
+  sourceCredentials,
+  onLayoutChange,
 }: InspectorProps) {
   const [formValues, setFormValues] = useState<Record<string, unknown>>({});
   const [renderedNode, setRenderedNode] = useState<InspectorNode | null>(null);
@@ -121,6 +139,40 @@ function Inspector({
   );
   const [width, setWidth] = useState(280); // w-70 = 280px
   const [isResizing, setIsResizing] = useState(false);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
+  useLayoutEffect(() => {
+    onLayoutChange?.(node !== null, width);
+  }, [node, width, onLayoutChange]);
+
+  useLayoutEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const syncScrollbarWidth = () => {
+      const nextScrollbarWidth = `${
+        scrollContainer.offsetWidth - scrollContainer.clientWidth
+      }px`;
+
+      if (
+        scrollContainer.style.getPropertyValue(
+          "--inspector-scrollbar-width"
+        ) === nextScrollbarWidth
+      ) {
+        return;
+      }
+
+      scrollContainer.style.setProperty(
+        "--inspector-scrollbar-width",
+        nextScrollbarWidth
+      );
+    };
+
+    syncScrollbarWidth();
+    window.addEventListener("resize", syncScrollbarWidth);
+
+    return () => window.removeEventListener("resize", syncScrollbarWidth);
+  }, [renderedNode?.id]);
 
   // Handle resizing
   useEffect(() => {
@@ -389,8 +441,24 @@ function Inspector({
     }));
   };
 
+  const handleSourceTableChange = useCallback((tableName: string) => {
+    setFormValues((previous) => ({ ...previous, table: tableName }));
+  }, []);
+
+  const handleSourceColumnsChange = useCallback(
+    (columns: SourceTableColumn[]) => {
+      setFormValues((previous) => ({ ...previous, columns }));
+    },
+    []
+  );
+
   const handleSave = () => {
     if (!renderedNode) return;
+    if (renderedNode.operation.id === "source-table") {
+      const tableName = String(formValues.table || "").trim();
+      const columns = formValues.columns;
+      if (!tableName || !Array.isArray(columns) || columns.length === 0) return;
+    }
     onSave(renderedNode.id, formValues);
     onClearSelection();
   };
@@ -460,7 +528,10 @@ function Inspector({
               </svg>
             </button>
           </div>
-          <div className="overflow-y-auto flex-1 mask-gradient-both px-4 -mr-3 pb-6 -mb-2">
+          <div
+            ref={scrollContainerRef}
+            className="inspector-scroll overflow-y-auto flex-1 mask-gradient-both px-4 pb-6 -mb-2"
+          >
             <div className="pt-4 pb-4 space-y-4">
               <div>
                 <h2 className="text-lg font-semibold">
@@ -473,49 +544,21 @@ function Inspector({
 
               {/* Global warning for invalid columns */}
               {invalidColumnsDetected && (
-                <div className="p-3 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-sm text-yellow-700 dark:text-yellow-400">
+                <div className="inspector-callout border-yellow-400 text-sm text-yellow-700 dark:border-yellow-600 dark:text-yellow-400">
                   ⚠️ Some column references were removed because they no longer
                   exist in the source
                 </div>
               )}
 
-              {/* Info banner for manual source */}
-              {renderedNode.operation.id === "source-manual" && (
-                <div className="rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 p-4">
-                  <div className="flex gap-3">
-                    <svg
-                      className="w-5 h-5 text-blue-600 dark:text-blue-400 shrink-0 mt-0.5"
-                      fill="none"
-                      viewBox="0 0 24 24"
-                      stroke="currentColor"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                      />
-                    </svg>
-                    <div className="flex-1">
-                      <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-200 mb-1">
-                        Offline table
-                      </h3>
-                      <p className="text-xs text-blue-700 dark:text-blue-300">
-                        This node allows you to define a table model without
-                        needing a live database connection. It is useful when
-                        preparing a model that will be referenced later, for
-                        example during the design or prototyping phase, when the
-                        actual database is not yet available. Models created
-                        this way cannot be tested or ran here.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* Available columns from upstream nodes */}
               {availableColumns.length > 0 && (
-                <div className="rounded-2xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 p-4">
+                <div
+                  className={`border-l-2 border-l-green-500 pl-3 ${
+                    renderedNode.operation.id === "dbt-model"
+                      ? "py-2"
+                      : "inspector-section"
+                  }`}
+                >
                   <h3 className="text-sm font-semibold text-green-900 dark:text-green-200 mb-2 flex items-center gap-2">
                     <svg
                       className="w-4 h-4"
@@ -706,17 +749,6 @@ function Inspector({
                                 rightColumn: "",
                               };
 
-                              // Prevent selecting the same column in both fields
-                              const otherColumn =
-                                joinColumnTarget === "left"
-                                  ? currentJoin.rightColumn
-                                  : currentJoin.leftColumn;
-
-                              if (col.name === otherColumn) {
-                                // Don't allow selecting the same column
-                                return;
-                              }
-
                               handleChange(targetParam, {
                                 ...currentJoin,
                                 [joinColumnTarget === "left"
@@ -773,8 +805,29 @@ function Inspector({
               )}
 
               <div className="space-y-4">
+                {renderedNode.operation.id === "source-table" && (
+                  <SourceTableSelector
+                    key={renderedNode.id}
+                    credentials={sourceCredentials}
+                    tableName={String(formValues.table || "")}
+                    selectedColumns={
+                      Array.isArray(formValues.columns)
+                        ? (formValues.columns as SourceTableColumn[])
+                        : []
+                    }
+                    onTableChange={handleSourceTableChange}
+                    onColumnsChange={handleSourceColumnsChange}
+                  />
+                )}
                 {paramFields
-                  .filter((param) => param.type !== "column-selector")
+                  .filter(
+                    (param) =>
+                      param.type !== "column-selector" &&
+                      !(
+                        renderedNode.operation.id === "source-table" &&
+                        (param.name === "table" || param.name === "columns")
+                      )
+                  )
                   .map((param) => (
                     <label
                       key={param.name}
@@ -946,7 +999,7 @@ function Inspector({
                           ).map((column, index) => (
                             <div
                               key={index}
-                              className="card flex gap-2 items-start p-3"
+                              className="inspector-repeat-row flex items-start gap-2"
                             >
                               <div className="flex-1 space-y-2">
                                 <input
@@ -1091,7 +1144,7 @@ function Inspector({
                             return (
                               <>
                                 {hasInvalidColumns && (
-                                  <div className="p-2 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg text-xs text-yellow-700 dark:text-yellow-400">
+                                  <div className="inspector-callout border-yellow-400 text-xs text-yellow-700 dark:border-yellow-600 dark:text-yellow-400">
                                     ⚠️ Some columns were removed because they no
                                     longer exist in the source
                                   </div>
@@ -1099,7 +1152,7 @@ function Inspector({
                                 {validColumns.map((col, index) => (
                                   <div
                                     key={index}
-                                    className="card flex gap-2 items-start p-3 my-4"
+                                    className="inspector-repeat-row flex items-start gap-2"
                                   >
                                     <div className="flex-1 space-y-2">
                                       <div>
@@ -1340,7 +1393,7 @@ function Inspector({
                       ) : param.type === "join-condition" ? (
                         <div className="space-y-2">
                           {/* Column selection - click on field to select it */}
-                          <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                          <div className="inspector-callout border-blue-400 text-blue-700 dark:border-blue-600 dark:text-blue-400">
                             <div className="text-xs text-blue-700 dark:text-blue-400 mb-2 font-medium">
                               Click on a field below to select it, then click a
                               column above:
@@ -1469,7 +1522,9 @@ function Inspector({
                             }
                           >
                             <option value="">Select a database type...</option>
-                            {DBT_ADAPTERS.map((adapter) => (
+                            {DBT_ADAPTERS.filter((adapter) =>
+                              ENABLED_DBT_ADAPTER_IDS.has(adapter.id)
+                            ).map((adapter) => (
                               <option key={adapter.id} value={adapter.id}>
                                 {adapter.label}
                               </option>
@@ -1489,7 +1544,13 @@ function Inspector({
                             if (!selectedAdapter) return null;
 
                             return (
-                              <div className="card space-y-3 p-4">
+                              <div className="mt-1 space-y-3 border-l-2 border-gray-300 pl-3 dark:border-gray-700">
+                                {selectedAdapter.id === "duckdb" && (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    Existing local file on the backend host. Opened read-only;
+                                    schema defaults to main. External files and extensions are disabled.
+                                  </p>
+                                )}
                                 {selectedAdapter.params.map((field) => (
                                   <div key={field.name}>
                                     <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
@@ -1596,14 +1657,21 @@ function Inspector({
           <div className="shrink-0 pb-4 flex flex-row-reverse gap-2 py-1 px-4">
             {renderedNode?.operation.id !== "dbt-model" && (
               <button
-                className="highlight-button rounded-full px-4 py-1 w-20"
+                className="highlight-button rounded-full px-4 py-1 w-20 disabled:cursor-not-allowed disabled:opacity-50"
                 type="button"
                 onClick={handleSave}
+                disabled={
+                  renderedNode.operation.id === "source-table" &&
+                  (!String(formValues.table || "").trim() ||
+                    !Array.isArray(formValues.columns) ||
+                    formValues.columns.length === 0)
+                }
               >
                 Save
               </button>
             )}
-            {renderedNode?.operation.id !== "dbt-model" && (
+            {renderedNode?.operation.id !== "dbt-model" &&
+              renderedNode?.operation.id !== "database" && (
               <button
                 className="delete-button px-4 py-1"
                 onClick={() => renderedNode && onDelete(renderedNode.id)}

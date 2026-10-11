@@ -8,10 +8,16 @@
  * - Selection state styling
  */
 
-import { memo, useState } from "react";
+import { memo, useLayoutEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { Handle, Position } from "@xyflow/react";
+import { Handle, Position, useUpdateNodeInternals } from "@xyflow/react";
+import { DBT_ADAPTERS } from "../../../definitions/dbtAdapters";
 import type { OperationDefinition } from "../../../definitions/operations";
+import {
+  useDatabaseConnectionStatus,
+  type DatabaseConnectionStatus,
+} from "../../../hooks/useDatabaseConnectionStatus";
+import { buildDatabaseCredentials } from "../../../services/databaseCredentials";
 import { getOperationIcon } from "../../ui/OperationIcons";
 
 /** Props for the OperationNode component */
@@ -39,6 +45,55 @@ interface FilterNode {
   column?: string;
   operator?: string;
   value?: string | number;
+}
+
+const CONNECTION_BADGE: Record<
+  DatabaseConnectionStatus,
+  { label: string; title: string; dotClassName: string; textClassName: string }
+> = {
+  checking: {
+    label: "Connecting...",
+    title: "Connecting to database",
+    dotClassName: "bg-amber-500 animate-pulse",
+    textClassName: "text-amber-700 dark:text-amber-400",
+  },
+  live: {
+    label: "Live",
+    title: "Database connection is active",
+    dotClassName: "bg-emerald-500 shadow-[0_0_0_3px_rgba(16,185,129,0.16)]",
+    textClassName: "text-emerald-700 dark:text-emerald-400",
+  },
+  offline: {
+    label: "Not connected",
+    title: "Database connection is unavailable or not configured",
+    dotClassName: "bg-red-500 shadow-[0_0_0_3px_rgba(239,68,68,0.14)]",
+    textClassName: "text-red-700 dark:text-red-400",
+  },
+};
+
+function DatabaseConnectionBadge({
+  status,
+}: {
+  status: DatabaseConnectionStatus;
+}) {
+  const badge = CONNECTION_BADGE[status];
+  return (
+    <span
+      className="relative inline-flex h-4 w-4 items-center justify-center"
+      title={badge.title}
+      aria-label={badge.title}
+    >
+      <span
+        aria-hidden="true"
+        className={`h-2 w-2 shrink-0 rounded-full ${badge.dotClassName}`}
+      />
+      <span
+        className={`absolute left-5 top-1/2 -translate-y-1/2 whitespace-nowrap text-[10px] font-medium ${badge.textClassName}`}
+      >
+        {badge.label}
+      </span>
+    </span>
+  );
 }
 
 /**
@@ -241,7 +296,44 @@ const NodeTooltip = ({ content }: { content: React.ReactNode }) => {
  */
 function OperationNode({ id, data }: OperationNodeProps) {
   const { operation, params, onConfigure, isSelected } = data;
-  const hasParams = params && Object.keys(params).length > 0;
+  const updateNodeInternals = useUpdateNodeInternals();
+  const inputHandleCount =
+    operation.id === "join"
+      ? (params?.inputHandles as number) || 2
+      : operation.inputs;
+  const outputHandleCount =
+    operation.id === "database"
+      ? (params?.outputHandles as number) || 1
+      : operation.outputs;
+
+  useLayoutEffect(() => {
+    updateNodeInternals(id);
+  }, [id, inputHandleCount, outputHandleCount, updateNodeInternals]);
+
+  const adapter =
+    operation.id === "database"
+      ? (params?.adapter as Record<string, unknown> | undefined)
+      : undefined;
+  const databaseCredentials = buildDatabaseCredentials(adapter);
+  const databaseConnectionStatus =
+    useDatabaseConnectionStatus(databaseCredentials);
+  const adapterLabel = databaseCredentials
+    ? DBT_ADAPTERS.find(
+        (definition) => definition.id === databaseCredentials.type
+      )?.label || databaseCredentials.type
+    : undefined;
+  const displayedParams: Array<[string, unknown]> =
+    operation.id === "database"
+      ? [
+          ...(adapterLabel ? [["type", adapterLabel] as [string, unknown]] : []),
+          ...(databaseCredentials?.database
+            ? [["database", databaseCredentials.database] as [string, unknown]]
+            : databaseCredentials?.path
+            ? [["file", databaseCredentials.path.split(/[/\\]/).pop()] as [string, unknown]]
+            : []),
+        ]
+      : Object.entries(params || {});
+  const hasParams = displayedParams.length > 0;
 
   /**
    * Calculates minimum height for nodes with dynamic handles.
@@ -285,8 +377,13 @@ function OperationNode({ id, data }: OperationNodeProps) {
 
       {/* Header */}
       <div className="flex">
-        <div className="node-icon w-11 h-11">
-          {getOperationIcon(operation.id, "w-6 h-6 text-orange-600")}
+        <div className="flex w-11 shrink-0 flex-col items-center gap-1.5">
+          <div className="node-icon w-11 h-11">
+            {getOperationIcon(operation.id, "w-6 h-6 text-orange-600")}
+          </div>
+          {operation.id === "database" ? (
+            <DatabaseConnectionBadge status={databaseConnectionStatus} />
+          ) : null}
         </div>
 
         <div className="ml-3">
@@ -298,10 +395,10 @@ function OperationNode({ id, data }: OperationNodeProps) {
       </div>
 
       {/* Parameters display */}
-      <div className="mt-3 border-t border-gray-300 dark:border-gray-700 pt-2">
+      <div className="node-separator mt-3 border-t border-gray-300 dark:border-gray-700 pt-2">
         {hasParams ? (
           <div className="space-y-1">
-            {Object.entries(params).map(([key, value]) => (
+            {displayedParams.map(([key, value]) => (
               <div
                 key={key}
                 className="flex justify-between items-start text-xs"
@@ -369,10 +466,13 @@ function JoinHandles({
         key={`input-${i}`}
         style={{
           position: "absolute",
-          left: -9,
+          left: -16,
           top: `${topPosition}px`,
+          width: 16,
+          height: 32,
           display: "flex",
           alignItems: "center",
+          pointerEvents: "none",
         }}
       >
         <Handle
@@ -387,12 +487,16 @@ function JoinHandles({
             left: 0,
             top: 0,
             transform: "none",
-            marginLeft: "-0.5rem",
-            zIndex: -1,
+            margin: 0,
+            zIndex: 1,
+            pointerEvents: "auto",
           }}
         />
         {canRemove && (
           <button
+            type="button"
+            className="nodrag nopan"
+            aria-label={`Remove input ${i + 1}`}
             onClick={(e) => {
               e.stopPropagation();
               const newCount = handleCount - 1;
@@ -407,9 +511,9 @@ function JoinHandles({
             }}
             style={{
               position: "absolute",
-              left: "50%",
+              right: 20,
               top: "50%",
-              transform: "translate(-50%, -50%)",
+              transform: "translateY(-50%)",
               width: "20px",
               height: "20px",
               border: "none",
@@ -424,7 +528,7 @@ function JoinHandles({
               justifyContent: "center",
               padding: 0,
               zIndex: 10,
-              marginRight: "-8rem",
+              pointerEvents: "auto",
             }}
             title="Remove input"
           >
@@ -442,13 +546,19 @@ function JoinHandles({
       key="add-handle"
       style={{
         position: "absolute",
-        left: -9,
+        left: -16,
         top: `${addButtonTop}px`,
+        width: 16,
+        height: 32,
         display: "flex",
         alignItems: "center",
+        pointerEvents: "none",
       }}
     >
       <button
+        type="button"
+        className="nodrag nopan"
+        aria-label="Add input"
         onClick={(e) => {
           e.stopPropagation();
           const newCount = handleCount + 1;
@@ -462,7 +572,7 @@ function JoinHandles({
         }}
         style={{
           position: "relative",
-          width: 15,
+          width: 16,
           height: 32,
           borderRadius: "6px 0 0 6px",
           borderLeft: "1px dashed currentColor",
@@ -480,8 +590,9 @@ function JoinHandles({
           justifyContent: "center",
           padding: 0,
           opacity: 1,
-          marginLeft: "-0.55rem",
-          zIndex: -1,
+          margin: 0,
+          zIndex: 1,
+          pointerEvents: "auto",
         }}
         title="Add input"
       >
@@ -502,7 +613,7 @@ function JoinHandles({
             height: 32,
             borderRadius: "0 calc(infinity * 1px) calc(infinity * 1px) 0",
             margin: "0 -0.55rem",
-            zIndex: -1,
+            zIndex: 1,
           }}
         />
       )}
@@ -539,11 +650,14 @@ function DatabaseHandles({
         key={`output-${i}`}
         style={{
           position: "absolute",
-          right: -9,
+          right: -16,
           top: `${topPosition}px`,
+          width: 16,
+          height: 32,
           display: "flex",
           alignItems: "center",
           flexDirection: "row-reverse",
+          pointerEvents: "none",
         }}
       >
         <Handle
@@ -558,12 +672,16 @@ function DatabaseHandles({
             left: 0,
             top: 0,
             transform: "none",
-            margin: "0 -0.5rem",
-            zIndex: -1,
+            margin: 0,
+            zIndex: 1,
+            pointerEvents: "auto",
           }}
         />
         {canRemove && (
           <button
+            type="button"
+            className="nodrag nopan"
+            aria-label={`Remove output ${i + 1}`}
             onClick={(e) => {
               e.stopPropagation();
               const newCount = handleCount - 1;
@@ -578,9 +696,9 @@ function DatabaseHandles({
             }}
             style={{
               position: "absolute",
-              left: "50%",
+              left: 20,
               top: "50%",
-              transform: "translate(-50%, -50%)",
+              transform: "translateY(-50%)",
               width: "20px",
               height: "20px",
               border: "none",
@@ -595,6 +713,7 @@ function DatabaseHandles({
               justifyContent: "center",
               padding: 0,
               zIndex: 10,
+              pointerEvents: "auto",
             }}
             title="Remove output"
           >
@@ -612,13 +731,19 @@ function DatabaseHandles({
       key="add-handle"
       style={{
         position: "absolute",
-        right: -9,
+        right: -16,
         top: `${addButtonTop}px`,
+        width: 16,
+        height: 32,
         display: "flex",
         alignItems: "center",
+        pointerEvents: "none",
       }}
     >
       <button
+        type="button"
+        className="nodrag nopan"
+        aria-label="Add output"
         onClick={(e) => {
           e.stopPropagation();
           const newCount = handleCount + 1;
@@ -632,7 +757,7 @@ function DatabaseHandles({
         }}
         style={{
           position: "relative",
-          width: 15,
+          width: 16,
           height: 32,
           borderRadius: "0 calc(infinity * 1px) calc(infinity * 1px) 0",
           borderRight: "1px dashed currentColor",
@@ -650,8 +775,9 @@ function DatabaseHandles({
           justifyContent: "center",
           padding: 0,
           opacity: 1,
-          marginRight: "-0.5rem",
-          zIndex: -1,
+          margin: 0,
+          zIndex: 1,
+          pointerEvents: "auto",
         }}
         title="Add output"
       >
@@ -672,7 +798,7 @@ function DatabaseHandles({
             height: 32,
             borderRadius: "6px 0 0 6px",
             margin: "0 -0.55rem",
-            zIndex: -1,
+            zIndex: 1,
           }}
         />
       )}
@@ -696,7 +822,7 @@ function StandardHandles({ operation }: { operation: OperationDefinition }) {
             height: 32,
             borderRadius: "6px 0 0 6px",
             margin: "0 -0.55rem",
-            zIndex: -1,
+            zIndex: 1,
           }}
         />
       )}
@@ -710,7 +836,7 @@ function StandardHandles({ operation }: { operation: OperationDefinition }) {
             height: 32,
             borderRadius: "0 calc(infinity * 1px) calc(infinity * 1px) 0",
             margin: "0 -0.55rem",
-            zIndex: -1,
+            zIndex: 1,
           }}
         />
       )}
