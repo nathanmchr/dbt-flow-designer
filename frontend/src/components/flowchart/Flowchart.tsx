@@ -10,16 +10,21 @@ import {
   applyEdgeChanges,
   applyNodeChanges,
   addEdge,
+  useReactFlow,
   type Edge,
   type Node,
   type Connection,
   type EdgeChange,
+  type FitViewOptions,
   type NodeChange,
 } from "@xyflow/react";
 import {
   useCallback,
+  useEffect,
   useMemo,
+  useRef,
   type Dispatch,
+  type RefObject,
   type SetStateAction,
 } from "react";
 import type { OperationDefinition } from "../../definitions/operations";
@@ -49,8 +54,241 @@ interface FlowchartProps {
   ) => void;
   onSaveParams?: (nodeId: string, params: Record<string, unknown>) => void;
   selectedNodeId?: string | null;
+  isToolboxOpen?: boolean;
   onNodeDragStart?: (event: React.MouseEvent, node: OperationNodeType) => void;
   onNodeDragStop?: (event: React.MouseEvent, node: OperationNodeType) => void;
+  getFitViewLeftPadding?: () => number;
+  getFitViewRightPadding?: () => number;
+}
+
+const FIT_VIEW_PADDING_PX = 32;
+const PANEL_VIEWPORT_MARGIN_PX = 16;
+
+function createFitViewPadding(
+  getFitViewLeftPadding?: () => number,
+  getFitViewRightPadding?: () => number
+): NonNullable<FitViewOptions["padding"]> {
+  const leftPadding = Math.max(
+    FIT_VIEW_PADDING_PX,
+    Math.round(getFitViewLeftPadding?.() ?? FIT_VIEW_PADDING_PX)
+  );
+  const rightPadding = Math.max(
+    FIT_VIEW_PADDING_PX,
+    Math.round(getFitViewRightPadding?.() ?? FIT_VIEW_PADDING_PX)
+  );
+
+  return {
+    top: `${FIT_VIEW_PADDING_PX}px`,
+    right: `${rightPadding}px`,
+    bottom: `${FIT_VIEW_PADDING_PX}px`,
+    left: `${leftPadding}px`,
+  };
+}
+
+function ContextAwareControls({
+  getFitViewLeftPadding,
+  getFitViewRightPadding,
+}: {
+  getFitViewLeftPadding?: () => number;
+  getFitViewRightPadding?: () => number;
+}) {
+  const { fitView } = useReactFlow();
+
+  const handleFitView = useCallback(() => {
+    void fitView({
+      padding: createFitViewPadding(
+        getFitViewLeftPadding,
+        getFitViewRightPadding
+      ),
+      duration: 300,
+    });
+  }, [fitView, getFitViewLeftPadding, getFitViewRightPadding]);
+
+  return <Controls onFitView={handleFitView} />;
+}
+
+function ContextAwareViewport({
+  selectedNodeId,
+  isToolboxOpen,
+  flowchartRef,
+  getFitViewLeftPadding,
+  getFitViewRightPadding,
+}: {
+  selectedNodeId?: string | null;
+  isToolboxOpen?: boolean;
+  flowchartRef: RefObject<HTMLDivElement | null>;
+  getFitViewLeftPadding?: () => number;
+  getFitViewRightPadding?: () => number;
+}) {
+  const { fitView, getViewport, setViewport } = useReactFlow();
+  const previousSelectedNodeIdRef = useRef(selectedNodeId);
+  const didAdjustForSelectionRef = useRef(false);
+  const previousToolboxOpenRef = useRef(isToolboxOpen);
+  const didAdjustForToolboxRef = useRef(false);
+
+  useEffect(() => {
+    const previousSelectedNodeId = previousSelectedNodeIdRef.current;
+    previousSelectedNodeIdRef.current = selectedNodeId;
+
+    if (!selectedNodeId) {
+      if (!previousSelectedNodeId || !didAdjustForSelectionRef.current) return;
+
+      didAdjustForSelectionRef.current = false;
+
+      const frame = window.requestAnimationFrame(() => {
+        void fitView({
+          padding: createFitViewPadding(
+            getFitViewLeftPadding,
+            getFitViewRightPadding
+          ),
+          duration: 300,
+        });
+      });
+
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    if (!previousSelectedNodeId) {
+      didAdjustForSelectionRef.current = false;
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const flowchart = flowchartRef.current;
+      if (!flowchart) return;
+
+      const selectedNode = Array.from(
+        flowchart.querySelectorAll<HTMLElement>(".react-flow__node")
+      ).find((element) => element.dataset.id === selectedNodeId);
+      if (!selectedNode) return;
+
+      const leftPadding = Math.max(
+        FIT_VIEW_PADDING_PX,
+        getFitViewLeftPadding?.() ?? FIT_VIEW_PADDING_PX
+      );
+      const rightPadding = Math.max(
+        FIT_VIEW_PADDING_PX,
+        getFitViewRightPadding?.() ?? FIT_VIEW_PADDING_PX
+      );
+
+      const flowchartBounds = flowchart.getBoundingClientRect();
+      const nodeBounds = selectedNode.getBoundingClientRect();
+      let horizontalOffset = 0;
+
+      if (leftPadding > FIT_VIEW_PADDING_PX) {
+        const toolboxRight =
+          flowchartBounds.left + leftPadding - PANEL_VIEWPORT_MARGIN_PX;
+        if (nodeBounds.left < toolboxRight) {
+          horizontalOffset =
+            toolboxRight + FIT_VIEW_PADDING_PX - nodeBounds.left;
+        }
+      }
+
+      if (
+        Math.abs(horizontalOffset) < 1 &&
+        rightPadding > FIT_VIEW_PADDING_PX
+      ) {
+        const editorLeft =
+          flowchartBounds.right - rightPadding + PANEL_VIEWPORT_MARGIN_PX;
+        if (nodeBounds.right > editorLeft) {
+          horizontalOffset =
+            editorLeft - FIT_VIEW_PADDING_PX - nodeBounds.right;
+        }
+      }
+
+      if (Math.abs(horizontalOffset) < 1) return;
+
+      const viewport = getViewport();
+      didAdjustForSelectionRef.current = true;
+      void setViewport(
+        { ...viewport, x: viewport.x + horizontalOffset },
+        { duration: 250 }
+      );
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    fitView,
+    flowchartRef,
+    getFitViewLeftPadding,
+    getFitViewRightPadding,
+    getViewport,
+    selectedNodeId,
+    setViewport,
+  ]);
+
+  useEffect(() => {
+    const wasToolboxOpen = previousToolboxOpenRef.current;
+    previousToolboxOpenRef.current = isToolboxOpen;
+
+    if (wasToolboxOpen === isToolboxOpen) return;
+
+    if (!isToolboxOpen) {
+      if (!didAdjustForToolboxRef.current) return;
+
+      didAdjustForToolboxRef.current = false;
+
+      const frame = window.requestAnimationFrame(() => {
+        void fitView({
+          padding: createFitViewPadding(
+            getFitViewLeftPadding,
+            getFitViewRightPadding
+          ),
+          duration: 300,
+        });
+      });
+
+      return () => window.cancelAnimationFrame(frame);
+    }
+
+    didAdjustForToolboxRef.current = false;
+    if (!selectedNodeId) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      const flowchart = flowchartRef.current;
+      if (!flowchart) return;
+
+      const selectedNode = Array.from(
+        flowchart.querySelectorAll<HTMLElement>(".react-flow__node")
+      ).find((element) => element.dataset.id === selectedNodeId);
+      if (!selectedNode) return;
+
+      const leftPadding = Math.max(
+        FIT_VIEW_PADDING_PX,
+        getFitViewLeftPadding?.() ?? FIT_VIEW_PADDING_PX
+      );
+      if (leftPadding <= FIT_VIEW_PADDING_PX) return;
+
+      const flowchartBounds = flowchart.getBoundingClientRect();
+      const nodeBounds = selectedNode.getBoundingClientRect();
+      const toolboxRight =
+        flowchartBounds.left + leftPadding - PANEL_VIEWPORT_MARGIN_PX;
+      if (nodeBounds.left >= toolboxRight) return;
+
+      const nodeLeftTarget = toolboxRight + FIT_VIEW_PADDING_PX;
+      const horizontalOffset = nodeLeftTarget - nodeBounds.left;
+      if (Math.abs(horizontalOffset) < 1) return;
+
+      const viewport = getViewport();
+      didAdjustForToolboxRef.current = true;
+      void setViewport(
+        { ...viewport, x: viewport.x + horizontalOffset },
+        { duration: 250 }
+      );
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    fitView,
+    flowchartRef,
+    getFitViewLeftPadding,
+    getFitViewRightPadding,
+    getViewport,
+    isToolboxOpen,
+    selectedNodeId,
+    setViewport,
+  ]);
+
+  return null;
 }
 
 /**
@@ -65,10 +303,23 @@ function Flowchart({
   onSelectNode,
   onSaveParams,
   selectedNodeId,
+  isToolboxOpen,
   onNodeDragStart,
   onNodeDragStop,
+  getFitViewLeftPadding,
+  getFitViewRightPadding,
 }: FlowchartProps) {
   const nodeTypes = { operation: OperationNode };
+  const flowchartRef = useRef<HTMLDivElement>(null);
+  const initialFitViewOptions = useMemo(
+    () => ({
+      padding: createFitViewPadding(
+        getFitViewLeftPadding,
+        getFitViewRightPadding
+      ),
+    }),
+    [getFitViewLeftPadding, getFitViewRightPadding]
+  );
 
   /**
    * Removes a node and its connected edges from the flowchart.
@@ -211,7 +462,7 @@ function Flowchart({
   ]);
 
   return (
-    <div className="flowchart flex-1 w-full h-full">
+    <div ref={flowchartRef} className="flowchart flex-1 w-full h-full">
       <ReactFlow
         nodes={nodesWithCallbacks}
         edges={edges}
@@ -223,6 +474,7 @@ function Flowchart({
         edgeTypes={{ animated: AnimatedEdge }}
         connectionLineStyle={{ strokeWidth: 2, stroke: "var(--edge-color)" }}
         fitView
+        fitViewOptions={initialFitViewOptions}
         minZoom={0.2}
         maxZoom={1.2}
         panOnScroll
@@ -233,7 +485,17 @@ function Flowchart({
         onNodeDragStop={onNodeDragStop}
       >
         <Background />
-        <Controls />
+        <ContextAwareControls
+          getFitViewLeftPadding={getFitViewLeftPadding}
+          getFitViewRightPadding={getFitViewRightPadding}
+        />
+        <ContextAwareViewport
+          selectedNodeId={selectedNodeId}
+          isToolboxOpen={isToolboxOpen}
+          flowchartRef={flowchartRef}
+          getFitViewLeftPadding={getFitViewLeftPadding}
+          getFitViewRightPadding={getFitViewRightPadding}
+        />
       </ReactFlow>
 
       <a

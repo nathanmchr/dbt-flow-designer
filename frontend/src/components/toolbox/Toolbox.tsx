@@ -5,7 +5,7 @@
  * users can add to the flowchart by clicking.
  */
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import {
   OPERATION_DEFS,
   type OperationDefinition,
@@ -14,17 +14,29 @@ import ToolboxNode from "../flowchart/nodes/ToolboxNode";
 
 interface ToolboxProps {
   onAddNode: (operation: OperationDefinition) => void;
+  onLayoutChange?: (isOpen: boolean, width: number) => void;
 }
+
+// Permanent nodes that shouldn't appear in the toolbox
+const PERMANENT_NODE_IDS = ["dbt-model", "database"];
+
+const CATEGORY_TITLES: Record<string, string> = {
+  source: "Sources",
+  transform: "Transformations",
+  output: "Output",
+  advanced: "Advanced",
+};
+const TAB_EXIT_DURATION_MS = 150;
 
 /**
  * Toolbox sidebar component with categorized operations.
  * Features resizable panel, collapsible categories, and smooth animations.
  */
-function Toolbox({ onAddNode }: ToolboxProps) {
-  // Group operations by category (exclude Model Output)
+function Toolbox({ onAddNode, onLayoutChange }: ToolboxProps) {
+  // Group operations by category (exclude permanent nodes: Model Output, Database)
   const categories = useMemo(
     () =>
-      OPERATION_DEFS.filter((op) => op.id !== "dbt-model").reduce<
+      OPERATION_DEFS.filter((op) => !PERMANENT_NODE_IDS.includes(op.id)).reduce<
         Record<string, OperationDefinition[]>
       >((acc, op) => {
         if (!acc[op.category]) acc[op.category] = [];
@@ -34,13 +46,6 @@ function Toolbox({ onAddNode }: ToolboxProps) {
     []
   );
 
-  const categoryTitles: Record<string, string> = {
-    source: "Sources",
-    transform: "Transformations",
-    output: "Output",
-    advanced: "Advanced",
-  };
-
   const [expandedCategories, setExpandedCategories] = useState<
     Record<string, boolean>
   >({});
@@ -49,6 +54,17 @@ function Toolbox({ onAddNode }: ToolboxProps) {
   const [isClosing, setIsClosing] = useState(false);
   const [width, setWidth] = useState(280);
   const [isResizing, setIsResizing] = useState(false);
+  const scrollContainerRef = useRef<HTMLElement>(null);
+  const categoryHeaderRefs = useRef<
+    Record<string, HTMLButtonElement | null>
+  >({});
+  const categoryContentRefs = useRef<Record<string, HTMLDivElement | null>>(
+    {}
+  );
+
+  useEffect(() => {
+    onLayoutChange?.(isOpen, width);
+  }, [isOpen, width, onLayoutChange]);
 
   const toggleCategory = (cat: string) => {
     setExpandedCategories((prev) => ({
@@ -62,7 +78,7 @@ function Toolbox({ onAddNode }: ToolboxProps) {
     setIsOpen(true);
     setTimeout(() => {
       setIsClosing(false);
-    }, 200);
+    }, TAB_EXIT_DURATION_MS);
   };
 
   // Handle resize drag
@@ -92,6 +108,75 @@ function Toolbox({ onAddNode }: ToolboxProps) {
     };
   }, [isResizing]);
 
+  // Keep each content mask aligned with the bottom edge of its sticky header.
+  useLayoutEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    let scheduledFrame: number | null = null;
+
+    const updateCategoryMasks = () => {
+      scheduledFrame = null;
+      const pixelRatio = window.devicePixelRatio || 1;
+      const maskUpdates = Object.keys(categories).flatMap((cat) => {
+        const header = categoryHeaderRefs.current[cat];
+        const content = categoryContentRefs.current[cat];
+        if (!header || !content) return [];
+
+        const rawMaskStart =
+          header.getBoundingClientRect().bottom -
+          content.getBoundingClientRect().top;
+        const maskStart =
+          Math.round(rawMaskStart * pixelRatio) / pixelRatio;
+
+        return [{ content, nextMaskStart: `${maskStart}px` }];
+      });
+
+      maskUpdates.forEach(({ content, nextMaskStart }) => {
+        if (
+          content.style.getPropertyValue("--toolbox-category-mask-start") ===
+          nextMaskStart
+        ) {
+          return;
+        }
+
+        content.style.setProperty(
+          "--toolbox-category-mask-start",
+          nextMaskStart
+        );
+      });
+    };
+
+    const scheduleCategoryMasksUpdate = () => {
+      if (scheduledFrame !== null) return;
+      scheduledFrame = window.requestAnimationFrame(updateCategoryMasks);
+    };
+
+    const resizeObserver = new ResizeObserver(scheduleCategoryMasksUpdate);
+    resizeObserver.observe(scrollContainer);
+    Object.values(categoryContentRefs.current).forEach((content) => {
+      if (content) resizeObserver.observe(content);
+    });
+
+    scrollContainer.addEventListener("scroll", scheduleCategoryMasksUpdate, {
+      passive: true,
+    });
+    window.addEventListener("resize", scheduleCategoryMasksUpdate);
+    updateCategoryMasks();
+
+    return () => {
+      scrollContainer.removeEventListener(
+        "scroll",
+        scheduleCategoryMasksUpdate
+      );
+      window.removeEventListener("resize", scheduleCategoryMasksUpdate);
+      resizeObserver.disconnect();
+      if (scheduledFrame !== null) {
+        window.cancelAnimationFrame(scheduledFrame);
+      }
+    };
+  }, [categories]);
+
   const enterEase = "cubic-bezier(0.22,1,0.36,1)";
   const exitEase = "cubic-bezier(0.5,0.05,0.8,0.25)";
 
@@ -109,11 +194,11 @@ function Toolbox({ onAddNode }: ToolboxProps) {
   }, [width]);
 
   const panelStyle = {
-    transform: isOpen ? "translateX(0)" : "translateX(-120%)",
-    opacity: isOpen ? 1 : 0,
+    transform: isOpen ? "none" : "translateX(-120%)",
+    pointerEvents: isOpen ? "auto" : "none",
     transition: isOpen
-      ? `transform 420ms ${enterEase}, opacity 420ms ${enterEase}`
-      : `transform 200ms ${exitEase}, opacity 200ms ${exitEase}`,
+      ? `transform 420ms ${enterEase}`
+      : `transform 200ms ${exitEase}`,
   } as const;
 
   return (
@@ -121,11 +206,15 @@ function Toolbox({ onAddNode }: ToolboxProps) {
       {/* Toggle button when closed */}
       {(!isOpen || isClosing) && (
         <button
+          type="button"
+          aria-label="Open toolbox"
+          aria-controls="toolbox-panel"
+          aria-expanded="false"
           onClick={handleOpenToolbox}
-          className="normal-button fixed left-0 top-34.5 -translate-y-1/2 z-50 p-3 rounded-r-2xl rounded-l-none border-l-transparent"
+          className="normal-button fixed left-0 top-34.5 -translate-y-1/2 z-50 p-3 rounded-r-2xl backdrop-blur-lg rounded-l-none border-l-transparent"
           style={{
             animation: isClosing
-              ? "slideOutToLeft 200ms ease-in both"
+              ? `slideOutToLeft ${TAB_EXIT_DURATION_MS}ms ease-in both`
               : "slideInFromLeft 200ms ease-out 160ms both",
           }}
         >
@@ -145,104 +234,146 @@ function Toolbox({ onAddNode }: ToolboxProps) {
         </button>
       )}
 
-      <div
-        className="panel fixed left-4 top-19 z-50 h-[calc(100%-var(--spacing)*27)] flex flex-col"
+      <aside
+        id="toolbox-panel"
+        aria-labelledby="toolbox-title"
+        aria-hidden={!isOpen}
+        inert={!isOpen}
+        className="toolbox-shell fixed left-4 top-19 z-50 my-4 h-[calc(100%-var(--spacing)*27)]"
         style={{ ...panelStyle, width: `${width}px` }}
       >
+        <div
+          aria-hidden="true"
+          className="panel toolbox-panel-surface absolute inset-0"
+        />
+
         {/* Resize handle */}
         <div
-          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize z-50"
+          role="separator"
+          aria-label="Resize toolbox"
+          aria-orientation="vertical"
+          className="absolute right-0 top-0 bottom-0 w-1 cursor-col-resize z-30"
           onMouseDown={(e) => {
             e.preventDefault();
             setIsResizing(true);
           }}
         />
-        <div className="shrink-0 flex justify-between items-center px-4 pt-4">
-          <p className="pb-2 border-b text-xs font-bold uppercase tracking-[0.2em] border-gray-400 dark:border-gray-700 text-gray-500 dark:text-gray-400">
-            Toolbox
-          </p>
-          <button
-            onClick={() => setIsOpen(false)}
-            className="normal-button rounded-full p-1"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
+
+        <div className="toolbox-layout absolute inset-px z-10 grid grid-rows-[auto_minmax(0,1fr)] overflow-x-clip rounded-[calc(1.5rem-1px)]">
+          <div className="flex items-center justify-between px-4 pt-4">
+            <p
+              id="toolbox-title"
+              className="pb-2 border-b text-xs font-bold uppercase tracking-[0.2em] border-gray-400 dark:border-gray-700 text-gray-500 dark:text-gray-400"
             >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={3}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
-        <div className="overflow-y-auto flex-1 mask-gradient-both pr-3 -mr-3 pt-4">
-          {Object.entries(categories).map(([cat, ops]) => (
-            <div key={cat} className="category mb-2">
-              <button
-                onClick={() => toggleCategory(cat)}
-                className="w-full flex items-center justify-start group sticky top-0 z-10 gap-2 mb-4 px-4 backdrop-blur-none border-transparent bg-transparent shadow-transparent hover:text-gray-700 dark:hover:text-gray-200"
+              Toolbox
+            </p>
+            <button
+              type="button"
+              aria-label="Minimize toolbox"
+              aria-controls="toolbox-panel"
+              onClick={() => setIsOpen(false)}
+              className="normal-button p-1"
+              title="Minimize toolbox"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
               >
-                <svg
-                  className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${
-                    expandedCategories[cat] ? "rotate-180" : ""
-                  }`}
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M20 12H4"
+                />
+              </svg>
+            </button>
+          </div>
+
+          <div className="toolbox-viewport toolbox-mask-gradient min-h-0 -mr-3">
+            <nav
+              ref={scrollContainerRef}
+              aria-label="Available operations"
+              className="toolbox-scroll h-full overflow-y-scroll pr-3 pt-4"
+            >
+              {Object.entries(categories).map(([cat, ops]) => (
+                <section
+                  key={cat}
+                  aria-labelledby={`toolbox-category-${cat}`}
+                  className="category mb-2"
                 >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 9l-7 7-7-7"
-                  />
-                </svg>
-                <h3 className="text-lg font-semibold">
-                  {categoryTitles[cat] || cat}
-                </h3>
-              </button>
-              <div
-                className={`grid transition-[grid-template-rows] duration-280 ease-out will-change-[grid-template-rows] ${
-                  expandedCategories[cat]
-                    ? "grid-rows-[1fr]"
-                    : "grid-rows-[0fr]"
-                }`}
-              >
-                <div className="overflow-hidden">
-                  <ul
-                    className={`grid gap-4 mb-4 px-4 transition-transform duration-300 ease-out will-change-transform transform-gpu ${
-                      expandedCategories[cat]
-                        ? "translate-y-0"
-                        : "-translate-y-full"
-                    }`}
-                    style={{
-                      gridTemplateColumns: `repeat(${gridCols}, 240px)`,
+                  <button
+                    id={`toolbox-category-${cat}`}
+                    type="button"
+                    aria-expanded={Boolean(expandedCategories[cat])}
+                    aria-controls={`toolbox-category-content-${cat}`}
+                    ref={(element) => {
+                      categoryHeaderRefs.current[cat] = element;
                     }}
+                    onClick={() => toggleCategory(cat)}
+                    className="toolbox-category-header w-full flex items-center justify-start group sticky top-0 z-10 gap-2 mb-4 px-4 border-transparent bg-transparent shadow-transparent hover:text-gray-700 dark:hover:text-gray-200"
                   >
-                    {ops.map((op) => (
-                      <li
-                        key={op.id}
-                        className={`h-full transition-opacity will-change-[opacity] transform-gpu ${
+                    <svg
+                      className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${
+                        expandedCategories[cat] ? "rotate-180" : ""
+                      }`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 9l-7 7-7-7"
+                      />
+                    </svg>
+                    <span className="text-lg font-semibold">
+                      {CATEGORY_TITLES[cat] || cat}
+                    </span>
+                  </button>
+                  <div
+                    id={`toolbox-category-content-${cat}`}
+                    className={`toolbox-category-reveal grid ${
+                      expandedCategories[cat]
+                        ? "grid-rows-[1fr]"
+                        : "grid-rows-[0fr]"
+                    }`}
+                  >
+                    <div
+                      ref={(element) => {
+                        categoryContentRefs.current[cat] = element;
+                      }}
+                      className="toolbox-category-content overflow-hidden"
+                    >
+                      <ul
+                        className={`toolbox-category-list-motion grid gap-4 mb-4 px-4 ${
                           expandedCategories[cat]
-                            ? "opacity-100 duration-400"
-                            : "opacity-0 duration-150"
+                            ? "toolbox-category-list-motion-expanded"
+                            : ""
                         }`}
+                        style={{
+                          gridTemplateColumns: `repeat(${gridCols}, 240px)`,
+                        }}
                       >
-                        <ToolboxNode operation={op} onAddNode={onAddNode} />
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              </div>
-            </div>
-          ))}
+                        {ops.map((op) => (
+                          <li key={op.id} className="h-full">
+                            <ToolboxNode
+                              operation={op}
+                              onAddNode={onAddNode}
+                            />
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </section>
+              ))}
+            </nav>
+          </div>
         </div>
-      </div>
+      </aside>
     </>
   );
 }

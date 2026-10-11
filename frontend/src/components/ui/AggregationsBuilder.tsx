@@ -100,13 +100,13 @@ export default function AggregationsBuilder({
       </div>
 
       {aggregations.length === 0 ? (
-        <div className="text-sm text-gray-500 italic p-4 border border-dashed border-gray-600 rounded text-center">
+        <div className="inspector-section px-1 text-sm italic text-gray-500">
           No aggregations yet. Click "Add Aggregation" to start.
         </div>
       ) : (
         <div className="space-y-2">
           {aggregations.map((agg, index) => (
-            <div key={agg.id} className="card p-4 space-y-3">
+            <div key={agg.id} className="inspector-repeat-row space-y-3">
               <div className="flex justify-between items-start">
                 <span className="text-xs font-semibold text-gray-400">
                   Aggregation #{index + 1}

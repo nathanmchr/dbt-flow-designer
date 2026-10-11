@@ -63,6 +63,8 @@ const OPERATORS = [
   "NOT IN",
   "IS NULL",
   "IS NOT NULL",
+  "IS NaN",
+  "IS NOT NaN",
 ];
 
 let nodeIdCounter = 0;
@@ -149,75 +151,40 @@ function ConditionBlock({
   };
 
   const showValueInput =
-    condition.operator !== "IS NULL" && condition.operator !== "IS NOT NULL";
+    condition.operator !== "IS NULL" &&
+    condition.operator !== "IS NOT NULL" &&
+    condition.operator !== "IS NaN" &&
+    condition.operator !== "IS NOT NaN";
 
   return (
     <div ref={setNodeRef} style={style} className="card p-3 my-2">
-      <div className="flex items-start gap-2">
-        {/* Drag Handle */}
-        <button
-          {...attributes}
-          {...listeners}
-          className="cursor-grab active:cursor-grabbing bg-transparent shadow-none border-none backdrop-blur-none text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
-        >
-          <svg className="w-4 h-4" viewBox="0 0 16 16">
-            <path
-              fill="currentColor"
-              d="M5 3h2v2H5V3zm4 0h2v2H9V3zM5 7h2v2H5V7zm4 0h2v2H9V7zm-4 4h2v2H5v-2zm4 0h2v2H9v-2z"
-            />
-          </svg>
-        </button>
-
-        {/* Condition Fields */}
-        <div className="flex-1 min-w-0 flex flex-wrap gap-2">
-          {/* Column */}
-          <select
-            value={condition.column}
-            onChange={(e) => onUpdate({ ...condition, column: e.target.value })}
+      <div className="mb-2 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <button
+            {...attributes}
+            {...listeners}
+            className="cursor-grab active:cursor-grabbing bg-transparent shadow-none border-none backdrop-blur-none text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            aria-label="Drag filter"
           >
-            <option value="">Select column...</option>
-            {availableColumns.map((col) => (
-              <option key={col.name} value={col.name}>
-                {col.name} ({col.type})
-              </option>
-            ))}
-          </select>
-
-          {/* Operator */}
-          <select
-            value={condition.operator}
-            onChange={(e) =>
-              onUpdate({ ...condition, operator: e.target.value })
-            }
-          >
-            <option value="">Op...</option>
-            {OPERATORS.map((op) => (
-              <option key={op} value={op}>
-                {op}
-              </option>
-            ))}
-          </select>
-
-          {/* Value */}
-          {showValueInput && (
-            <input
-              type="text"
-              value={condition.value}
-              onChange={(e) =>
-                onUpdate({ ...condition, value: e.target.value })
-              }
-              placeholder="Value..."
-            />
-          )}
+            <svg className="w-4 h-4" viewBox="0 0 16 16">
+              <path
+                fill="currentColor"
+                d="M5 3h2v2H5V3zm4 0h2v2H9V3zM5 7h2v2H5V7zm4 0h2v2H9V7zm-4 4h2v2H5v-2zm4 0h2v2H9v-2z"
+              />
+            </svg>
+          </button>
+          <span className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+            Filter
+          </span>
         </div>
 
-        {/* Delete Button */}
         <button
           onClick={onDelete}
           disabled={!canDelete}
           className={`delete-button w-6 h-6 flex justify-center items-center ${
             canDelete ? "" : "cursor-not-allowed"
           }`}
+          aria-label="Delete filter"
         >
           <svg
             className="w-4 h-4"
@@ -234,7 +201,100 @@ function ConditionBlock({
           </svg>
         </button>
       </div>
+
+      <div className="flex min-w-0 flex-wrap gap-2">
+        <select
+          value={condition.column}
+          onChange={(e) => onUpdate({ ...condition, column: e.target.value })}
+        >
+          <option value="">Select column...</option>
+          {availableColumns.map((col) => (
+            <option key={col.name} value={col.name}>
+              {col.name} ({col.type})
+            </option>
+          ))}
+        </select>
+
+        <select
+          value={condition.operator}
+          onChange={(e) =>
+            onUpdate({ ...condition, operator: e.target.value })
+          }
+        >
+          <option value="">Op...</option>
+          {OPERATORS.map((op) => (
+            <option key={op} value={op}>
+              {op}
+            </option>
+          ))}
+        </select>
+
+        {showValueInput && (
+          <input
+            type="text"
+            value={condition.value}
+            onChange={(e) =>
+              onUpdate({ ...condition, value: e.target.value })
+            }
+            placeholder="Value..."
+          />
+        )}
+      </div>
     </div>
+  );
+}
+
+function GroupAddMenu({
+  onAddCondition,
+  onAddGroup,
+}: {
+  onAddCondition: () => void;
+  onAddGroup: () => void;
+}) {
+  return (
+    <details className="relative">
+      <summary className="normal-button flex h-7 cursor-pointer list-none items-center gap-1 px-2 text-xs [&::-webkit-details-marker]:hidden">
+        <svg
+          className="h-3.5 w-3.5"
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          aria-hidden="true"
+        >
+          <path
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeWidth={2}
+            d="M12 4v16m8-8H4"
+          />
+        </svg>
+        Add
+      </summary>
+      <div className="card absolute right-0 top-full z-30 mt-1 w-36 p-1">
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left text-xs shadow-none backdrop-blur-none hover:bg-gray-100 dark:hover:bg-gray-700"
+          onClick={(event) => {
+            onAddCondition();
+            event.currentTarget.closest("details")?.removeAttribute("open");
+          }}
+        >
+          <span className="text-orange-500">+</span>
+          Condition
+        </button>
+        <button
+          type="button"
+          className="flex w-full items-center gap-2 rounded-lg border-0 bg-transparent px-2 py-1.5 text-left text-xs shadow-none backdrop-blur-none hover:bg-gray-100 dark:hover:bg-gray-700"
+          onClick={(event) => {
+            onAddGroup();
+            event.currentTarget.closest("details")?.removeAttribute("open");
+          }}
+        >
+          <span className="text-gray-400">+</span>
+          Group
+        </button>
+      </div>
+    </details>
   );
 }
 
@@ -390,6 +450,7 @@ function GroupBlock({
               {...attributes}
               {...listeners}
               className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 cursor-grab active:cursor-grabbing border-transparent"
+              aria-label="Drag group"
             >
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
                 <path d="M5 3h2v2H5V3zm4 0h2v2H9V3zM5 7h2v2H5V7zm4 0h2v2H9V7zm-4 4h2v2H5v-2zm4 0h2v2H9v-2z" />
@@ -399,26 +460,33 @@ function GroupBlock({
               Group
             </span>
           </div>
-          {onDelete && (
-            <button
-              onClick={onDelete}
-              className="delete-button w-6 h-6 flex justify-center items-center text-xs"
-            >
-              <svg
-                className="w-4 h-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
+          <div className="flex items-center gap-1.5">
+            <GroupAddMenu
+              onAddCondition={addCondition}
+              onAddGroup={addGroup}
+            />
+            {onDelete && (
+              <button
+                onClick={onDelete}
+                className="delete-button w-6 h-6 flex justify-center items-center text-xs"
+                aria-label="Delete group"
               >
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                />
-              </svg>
-            </button>
-          )}
+                <svg
+                  className="w-4 h-4"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                  stroke="currentColor"
+                >
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                  />
+                </svg>
+              </button>
+            )}
+          </div>
         </div>
       )}
 
@@ -473,47 +541,53 @@ function GroupBlock({
         </SortableContext>
       </DndContext>
 
-      {/* Actions */}
-      <div className="flex gap-2 mt-3">
-        <button
-          onClick={addCondition}
-          className="highlight-button flex *:flex-1 px-2 py-1 items-center justify-center gap-1 rounded-full"
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-          Condition
-        </button>
-        <button
-          onClick={addGroup}
-          className="normal-button flex flex-1 px-2 py-1 items-center justify-center gap-1 rounded-full"
-        >
-          <svg
-            className="w-4 h-4"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M12 4v16m8-8H4"
-            />
-          </svg>
-          Group
-        </button>
-      </div>
+      {isRoot && (
+        <div className="mt-3 border-t border-gray-300/70 pt-3 dark:border-gray-700/80">
+          <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.16em] text-gray-500 dark:text-gray-400">
+            Add to root
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={addCondition}
+              className="highlight-button flex flex-1 items-center justify-center gap-1 rounded-full px-2 py-1"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 4v16m8-8H4"
+                />
+              </svg>
+              Condition
+            </button>
+            <button
+              onClick={addGroup}
+              className="normal-button flex flex-1 items-center justify-center gap-1 rounded-full px-2 py-1"
+            >
+              <svg
+                className="w-4 h-4"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 4v16m8-8H4"
+                />
+              </svg>
+              Group
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

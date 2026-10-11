@@ -22,6 +22,7 @@ export {
   AggregationsBuilder,
   ColumnMultiSelector,
   getOperationIcon,
+  QueryResultsPanel,
 } from "./ui";
 export type {
   FilterGroup,

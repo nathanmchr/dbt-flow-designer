@@ -93,6 +93,11 @@
       dark:border-gray-700 dark:bg-gray-800/10 dark:shadow-black/25;
   }
 
+  input[type="checkbox"],
+  input[type="radio"] {
+    @apply h-4 w-4 min-w-4 shrink-0 rounded-sm p-0 shadow-none;
+  }
+
   select {
     appearance: none;
     background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
@@ -120,7 +125,25 @@
     @apply text-3xl font-bold text-orange-600;
   }
 
-  /* Resize cursor state */
+  /* Resize cursor state - horizontal */
+  body.resizing-col {
+    cursor: col-resize !important;
+  }
+
+  body.resizing-col * {
+    pointer-events: none !important;
+  }
+
+  /* Resize cursor state - vertical */
+  body.resizing-row {
+    cursor: row-resize !important;
+  }
+
+  body.resizing-row * {
+    pointer-events: none !important;
+  }
+
+  /* Legacy class for backwards compatibility */
   body.resizing {
     cursor: col-resize !important;
   }
@@ -186,6 +209,26 @@
       dark:bg-gray-800/60 dark:border-gray-700;
   }
 
+  /* Inspector content uses rhythm and dividers instead of nested cards. */
+  .inspector-section {
+    @apply border-y border-gray-300/70 py-4
+      dark:border-gray-700/80;
+  }
+
+  .inspector-list {
+    @apply border-y border-gray-300/70 divide-y divide-gray-300/60
+      dark:border-gray-700/80 dark:divide-gray-700/70;
+  }
+
+  .inspector-repeat-row {
+    @apply border-t border-gray-300/70 py-4 first:border-t-0
+      dark:border-gray-700/80;
+  }
+
+  .inspector-callout {
+    @apply border-l-2 px-3 py-2;
+  }
+
   /* Nodes */
   .node {
     @apply px-6 py-4 rounded-2xl
@@ -204,6 +247,10 @@
       dark:border-gray-500 dark:bg-gray-700;
   }
 
+  .node-separator {
+    transition: border-color var(--transition-fast);
+  }
+
   .toolbox-node {
     @apply px-6 py-4 rounded-2xl
       shadow-md hover:shadow-lg border
@@ -213,6 +260,67 @@
       dark:bg-gray-700/40 dark:hover:bg-gray-500/40;
     transition: background-color var(--transition-fast),
       border-color var(--transition-fast), box-shadow var(--transition-fast);
+  }
+
+  /* Keep the visual glass panel independent from the scrolling content. */
+  .toolbox-panel-surface {
+    margin-block: 0;
+    pointer-events: none;
+  }
+
+  /* The mask owns painting; the nested nav owns scrolling and sticky layout. */
+  .toolbox-viewport {
+    contain: layout paint;
+    isolation: isolate;
+    min-width: 0;
+  }
+
+  /* Fade scrolled cards themselves as they pass beneath sticky headers. */
+  .toolbox-category-content {
+    --toolbox-category-mask-start: -1rem;
+    mask-image: linear-gradient(
+      to bottom,
+      transparent var(--toolbox-category-mask-start),
+      black calc(var(--toolbox-category-mask-start) + 1rem)
+    );
+    mask-repeat: no-repeat;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent var(--toolbox-category-mask-start),
+      black calc(var(--toolbox-category-mask-start) + 1rem)
+    );
+    -webkit-mask-repeat: no-repeat;
+  }
+
+  .toolbox-scroll {
+    min-width: 0;
+    overflow-anchor: none;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .toolbox-scroll::-webkit-scrollbar-track {
+    margin-block: 0;
+  }
+
+  .inspector-scroll {
+    margin-right: calc(-1 * var(--inspector-scrollbar-width, 0px));
+    scrollbar-gutter: stable;
+  }
+
+  .toolbox-category-reveal {
+    transition: grid-template-rows 220ms ease;
+  }
+
+  .toolbox-category-list-motion {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+    transition: transform 220ms ease, opacity 160ms ease;
+  }
+
+  .toolbox-category-list-motion-expanded {
+    opacity: 1;
+    transform: translateY(0);
   }
 
   /* Node icons */
@@ -317,6 +425,13 @@
   }
 }
 
+@media (prefers-color-scheme: dark) {
+  .node:hover .node-separator,
+  .node.selected .node-separator {
+    border-color: var(--color-gray-500);
+  }
+}
+
 /* =============================================================================
    5. UTILITIES LAYER
    ============================================================================= */
@@ -346,6 +461,55 @@
         rgba(0, 0, 0, 0.963) 26.512px,
         rgba(0, 0, 0, 0.981) 28.16px,
         rgba(0, 0, 0, 1) var(--fade-mid),
+        rgba(0, 0, 0, 1) var(--fade-end-start),
+        rgba(0, 0, 0, 0.981) calc(100% - 52.8px),
+        rgba(0, 0, 0, 0.963) calc(100% - 49.71px),
+        rgba(0, 0, 0, 0.925) calc(100% - 45.3px),
+        rgba(0, 0, 0, 0.85) calc(100% - 39px),
+        rgba(0, 0, 0, 0.7) calc(100% - 30px),
+        rgba(0, 0, 0, 0) var(--fade-end)
+      ),
+      linear-gradient(to left, black, black);
+    mask-size: calc(100% - 10px) 100%, 10px 100%;
+    mask-position: left top, right top;
+    mask-repeat: no-repeat;
+  }
+
+  .mask-gradient-bottom {
+    --fade-end-start: calc(100% - 60px);
+    --fade-end: 100%;
+
+    mask-image: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 1) 0%,
+        rgba(0, 0, 0, 1) var(--fade-end-start),
+        rgba(0, 0, 0, 0.981) calc(100% - 52.8px),
+        rgba(0, 0, 0, 0.963) calc(100% - 49.71px),
+        rgba(0, 0, 0, 0.925) calc(100% - 45.3px),
+        rgba(0, 0, 0, 0.85) calc(100% - 39px),
+        rgba(0, 0, 0, 0.7) calc(100% - 30px),
+        rgba(0, 0, 0, 0) var(--fade-end)
+      ),
+      linear-gradient(to left, black, black);
+    mask-size: calc(100% - 10px) 100%, 10px 100%;
+    mask-position: left top, right top;
+    mask-repeat: no-repeat;
+  }
+
+  .toolbox-mask-gradient {
+    --fade-start-end: 16px;
+    --fade-end-start: calc(100% - 60px);
+    --fade-end: 100%;
+
+    mask-image: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0) 0,
+        rgba(0, 0, 0, 0.7) 8px,
+        rgba(0, 0, 0, 0.85) 10.4px,
+        rgba(0, 0, 0, 0.925) 12.08px,
+        rgba(0, 0, 0, 0.963) 13.256px,
+        rgba(0, 0, 0, 0.981) 14.08px,
+        rgba(0, 0, 0, 1) var(--fade-start-end),
         rgba(0, 0, 0, 1) var(--fade-end-start),
         rgba(0, 0, 0, 0.981) calc(100% - 52.8px),
         rgba(0, 0, 0, 0.963) calc(100% - 49.71px),
@@ -472,6 +636,28 @@
   }
   to {
     transform: translateX(-100%) translateY(-50%);
+    opacity: 0;
+  }
+}
+
+@keyframes slideInFromBottom {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutToBottom {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
     opacity: 0;
   }
 }

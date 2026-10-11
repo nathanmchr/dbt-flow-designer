@@ -9,3 +9,4 @@ export { default as AggregationsBuilder } from "./AggregationsBuilder";
 export type { Aggregation } from "./AggregationsBuilder";
 export { default as ColumnMultiSelector } from "./ColumnMultiSelector";
 export { getOperationIcon } from "./OperationIcons";
+export { QueryResultsPanel } from "./QueryResultsPanel";
