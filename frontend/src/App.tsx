@@ -11,7 +11,13 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { createPortal } from "react-dom";
 import type { Edge, Node } from "@xyflow/react";
-import { Flowchart, Inspector, Toolbox, Tooltip } from "./components";
+import {
+  Flowchart,
+  Inspector,
+  Toolbox,
+  Tooltip,
+  QueryResultsPanel,
+} from "./components";
 import {
   OPERATION_DEFS,
   type OperationDefinition,
@@ -21,41 +27,169 @@ import {
   type ColumnDefinition,
 } from "./definitions/columnPropagation";
 import { generateDbtModel } from "./generators/dbtGenerator";
-
-type OperationNodeData = {
-  operation: OperationDefinition;
-  params?: Record<string, unknown>;
-};
+import { api, type QueryResult } from "./services/api";
+import { buildDatabaseCredentials } from "./services/databaseCredentials";
+import { ENABLED_DBT_ADAPTER_IDS } from "./definitions/dbtAdapters";
+import {
+  consumeLegacyDatabaseSecretSnapshot,
+  createDatabaseSecretSnapshot,
+  hydrateDatabaseSecrets,
+} from "./services/databaseSecretPersistence";
+import {
+  createCurrentModelSnapshot,
+  createProjectId,
+  loadFlowHistory,
+  loadCurrentModel,
+  parseCurrentModel,
+  persistFlowHistory,
+  persistCurrentModel,
+} from "./services/modelPersistence";
+import { createBlankModelState } from "./services/modelLifecycle";
+import {
+  areHistoryStatesEqual,
+  createHistoryState,
+  describeHistoryChange,
+} from "./services/historyState";
+import type {
+  HistoryState,
+  OperationNodeData,
+  ProjectSecretEnvelope,
+} from "./types";
 
 function App() {
-  const [nodes, setNodes] = useState<Node<OperationNodeData>[]>([]);
-  const [edges, setEdges] = useState<Edge[]>([]);
-  const [nodeCounter, setNodeCounter] = useState(0);
-  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [modelName, setModelName] = useState("Untitled Model");
-  const [isEditingName, setIsEditingName] = useState(false);
-  const previousModelName = useRef("Untitled Model");
-  // Undo/Redo history management
-  type HistoryState = {
-    nodes: Node<OperationNodeData>[];
-    edges: Edge[];
-  };
+  const [initialModel] = useState(loadCurrentModel);
+  const [legacyDatabaseSecrets] = useState(
+    consumeLegacyDatabaseSecretSnapshot
+  );
+  const [blankInitialModel] = useState(createBlankModelState);
+  const initialModelName = initialModel?.modelName || blankInitialModel.modelName;
+  const initialNodes = hydrateDatabaseSecrets(
+    initialModel?.nodes ?? blankInitialModel.nodes,
+    legacyDatabaseSecrets
+  );
+  const initialEdges = initialModel?.edges ?? blankInitialModel.edges;
+  const [initialFlowHistory] = useState(() =>
+    loadFlowHistory({ nodes: initialNodes, edges: initialEdges })
+  );
+  const restoredInitialHistory = initialFlowHistory?.history.map((state) => ({
+    ...state,
+    nodes: hydrateDatabaseSecrets(state.nodes, legacyDatabaseSecrets),
+  }));
 
-  const [history, setHistory] = useState<HistoryState[]>([
-    { nodes: [], edges: [] },
-  ]);
-  const [historyIndex, setHistoryIndex] = useState(0);
+  const [nodes, setNodes] = useState<Node<OperationNodeData>[]>(initialNodes);
+  const [edges, setEdges] = useState<Edge[]>(initialEdges);
+  const [nodeCounter, setNodeCounter] = useState(
+    initialModel?.nodeCounter ?? blankInitialModel.nodeCounter
+  );
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [modelName, setModelName] = useState(initialModelName);
+  const [projectId, setProjectId] = useState(
+    () => initialModel?.projectId ?? createProjectId()
+  );
+  const [secretEnvelope, setSecretEnvelope] =
+    useState<ProjectSecretEnvelope | null>(
+      initialModel?.secretEnvelope ?? null
+    );
+  const [secretsReady, setSecretsReady] = useState(
+    !initialModel?.secretEnvelope
+  );
+  const secretEnvelopeRef = useRef<ProjectSecretEnvelope | null>(
+    initialModel?.secretEnvelope ?? null
+  );
+  const [isEditingName, setIsEditingName] = useState(false);
+
+  // Query test results state
+  const [queryResults, setQueryResults] = useState<QueryResult | null>(null);
+  const [isTestLoading, setIsTestLoading] = useState(false);
+  const [testError, setTestError] = useState<string | null>(null);
+  const [isResultsPanelExpanded, setIsResultsPanelExpanded] = useState(false);
+  const previousModelName = useRef(initialModelName);
+
+  // Undo/Redo history management
+  const [history, setHistory] = useState<HistoryState[]>(
+    restoredInitialHistory ?? [
+      createHistoryState(initialNodes, initialEdges),
+    ]
+  );
+  const [historyIndex, setHistoryIndex] = useState(
+    initialFlowHistory?.historyIndex ?? 0
+  );
   const movingNodes = useRef<Set<string>>(new Set()); // Track which nodes are being moved
   const isRestoringHistory = useRef(false);
+  const toolboxLayoutRef = useRef({ isOpen: true, width: 280 });
+  const inspectorLayoutRef = useRef({ isOpen: false, width: 280 });
+  const [isToolboxOpen, setIsToolboxOpen] = useState(true);
+
+  const handleToolboxLayoutChange = useCallback(
+    (isOpen: boolean, width: number) => {
+      toolboxLayoutRef.current = { isOpen, width };
+      setIsToolboxOpen(isOpen);
+    },
+    []
+  );
+
+  const getFitViewLeftPadding = useCallback(() => {
+    const { isOpen, width } = toolboxLayoutRef.current;
+    return isOpen ? width + 32 : 32;
+  }, []);
+
+  const handleInspectorLayoutChange = useCallback(
+    (isOpen: boolean, width: number) => {
+      inspectorLayoutRef.current = { isOpen, width };
+    },
+    []
+  );
+
+  const getFitViewRightPadding = useCallback(() => {
+    const { isOpen, width } = inspectorLayoutRef.current;
+    return isOpen ? width + 32 : 32;
+  }, []);
 
   const [undoDescription, setUndoDescription] = useState<string>("");
   const [redoDescription, setRedoDescription] = useState<string>("");
 
   // Dropdown menu state
   const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const [isNewModelDialogOpen, setIsNewModelDialogOpen] = useState(false);
   const modelMenuRef = useRef<HTMLDivElement>(null);
   const modelButtonRef = useRef<HTMLButtonElement>(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
+  const currentModelStateRef = useRef({
+    projectId,
+    modelName,
+    nodes,
+    edges,
+    nodeCounter,
+  });
+  currentModelStateRef.current = {
+    projectId,
+    modelName,
+    nodes,
+    edges,
+    nodeCounter,
+  };
+  const databasePasswordsJson = useMemo(
+    () => JSON.stringify(createDatabaseSecretSnapshot(nodes).passwords),
+    [nodes]
+  );
+
+  const persistSecretEnvelopeImmediately = useCallback(
+    (envelope: ProjectSecretEnvelope | null) => {
+      const currentModel = currentModelStateRef.current;
+      if (envelope && envelope.project_id !== currentModel.projectId) return;
+
+      secretEnvelopeRef.current = envelope;
+      persistCurrentModel({
+        ...currentModel,
+        secretEnvelope: envelope ?? undefined,
+      });
+    },
+    []
+  );
+
+  useEffect(() => {
+    secretEnvelopeRef.current = secretEnvelope;
+  }, [secretEnvelope]);
 
   // Finish editing model name with validation
   const finishEditingName = () => {
@@ -71,28 +205,101 @@ function App() {
     setIsEditingName(false);
   };
 
-  // Initialize Model Output node if it doesn't exist
+  // Keep the active model available across page refreshes.
   useEffect(() => {
-    const hasModelOutput = nodes.some(
-      (n) => n.data.operation.id === "dbt-model"
-    );
-    if (!hasModelOutput && nodes.length === 0) {
-      const modelOutputOp = OPERATION_DEFS.find((op) => op.id === "dbt-model");
-      if (modelOutputOp) {
-        const newNode: Node<OperationNodeData> = {
-          id: "model-output",
-          type: "operation",
-          position: { x: 600, y: 300 },
-          data: {
-            operation: modelOutputOp,
-            params: {},
-          },
-        };
-        setNodes([newNode]);
-      }
+    persistCurrentModel({
+      projectId,
+      modelName,
+      nodes,
+      edges,
+      nodeCounter,
+      secretEnvelope: secretEnvelope ?? undefined,
+    });
+  }, [projectId, modelName, nodes, edges, nodeCounter, secretEnvelope]);
+
+  // Unlock the encrypted secrets of the model restored after a page refresh.
+  useEffect(() => {
+    const envelope = initialModel?.secretEnvelope;
+    if (!envelope) return;
+
+    const controller = new AbortController();
+    void api
+      .decryptProjectSecrets(envelope, controller.signal)
+      .then((passwords) => {
+        const snapshot = { version: "1.0" as const, passwords };
+        setNodes((currentNodes) =>
+          hydrateDatabaseSecrets(currentNodes, snapshot)
+        );
+        setHistory((currentHistory) =>
+          currentHistory.map((state) => ({
+            ...state,
+            nodes: hydrateDatabaseSecrets(state.nodes, snapshot),
+          }))
+        );
+        setSecretsReady(true);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        console.warn(
+          error instanceof Error
+            ? error.message
+            : "Unable to unlock project secrets"
+        );
+        setSecretsReady(false);
+      });
+
+    return () => controller.abort();
+  }, [initialModel]);
+
+  // Re-encrypt only when a database password actually changes.
+  useEffect(() => {
+    const passwords = JSON.parse(databasePasswordsJson) as Record<
+      string,
+      string
+    >;
+    if (!secretsReady && Object.keys(passwords).length === 0) return;
+
+    if (Object.keys(passwords).length === 0) {
+      persistSecretEnvelopeImmediately(null);
+      setSecretEnvelope(null);
+      setSecretsReady(true);
+      return;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+
+    const controller = new AbortController();
+    void api
+      .encryptProjectSecrets(
+        projectId,
+        passwords,
+        secretEnvelopeRef.current,
+        controller.signal
+      )
+      .then((envelope) => {
+        persistSecretEnvelopeImmediately(envelope);
+        setSecretEnvelope(envelope);
+        setSecretsReady(true);
+      })
+      .catch((error: unknown) => {
+        if (controller.signal.aborted) return;
+        console.warn(
+          error instanceof Error
+            ? error.message
+            : "Unable to encrypt project secrets"
+        );
+      });
+
+    return () => controller.abort();
+  }, [
+    databasePasswordsJson,
+    persistSecretEnvelopeImmediately,
+    projectId,
+    secretsReady,
+  ]);
+
+  // Keep the active point in the undo/redo timeline across page refreshes.
+  useEffect(() => {
+    persistFlowHistory(history, historyIndex);
+  }, [history, historyIndex]);
 
   // Sync existing nodes with latest operation definitions (e.g. label changes)
   useEffect(() => {
@@ -118,122 +325,19 @@ function App() {
     });
   }, []);
 
-  // Normalize nodes to only keep user-relevant properties (ignore ReactFlow metadata)
-  const normalizeNode = (node: Node<OperationNodeData>) => ({
-    id: node.id,
-    type: node.type,
-    position: node.position,
-    data: node.data,
-  });
-
-  const normalizeEdge = (edge: Edge) => ({
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    type: edge.type,
-  });
-
-  // Generate a human-readable description of the change between two states
-  const describeChange = (
-    fromState: HistoryState,
-    toState: HistoryState
-  ): string => {
-    // Check for added nodes
-    const addedNodes = toState.nodes.filter(
-      (n) => !fromState.nodes.find((fn) => fn.id === n.id)
-    );
-    if (addedNodes.length > 0) {
-      const nodeName = addedNodes[0].data.operation.label;
-      return `Added node "${nodeName}"`;
-    }
-
-    // Check for deleted nodes
-    const deletedNodes = fromState.nodes.filter(
-      (n) => !toState.nodes.find((tn) => tn.id === n.id)
-    );
-    if (deletedNodes.length > 0) {
-      const nodeName = deletedNodes[0].data.operation.label;
-      return `Deleted node "${nodeName}"`;
-    }
-
-    // Check for added edges
-    const addedEdges = toState.edges.filter(
-      (e) => !fromState.edges.find((fe) => fe.id === e.id)
-    );
-    if (addedEdges.length > 0) {
-      const edge = addedEdges[0];
-      const sourceNode = toState.nodes.find((n) => n.id === edge.source);
-      const targetNode = toState.nodes.find((n) => n.id === edge.target);
-      if (sourceNode && targetNode) {
-        return `Connected "${sourceNode.data.operation.label}" to "${targetNode.data.operation.label}"`;
-      }
-      return "Connected nodes";
-    }
-
-    // Check for deleted edges
-    const deletedEdges = fromState.edges.filter(
-      (e) => !toState.edges.find((te) => te.id === e.id)
-    );
-    if (deletedEdges.length > 0) {
-      const edge = deletedEdges[0];
-      const sourceNode = fromState.nodes.find((n) => n.id === edge.source);
-      const targetNode = fromState.nodes.find((n) => n.id === edge.target);
-      if (sourceNode && targetNode) {
-        return `Disconnected "${sourceNode.data.operation.label}" from "${targetNode.data.operation.label}"`;
-      }
-      return "Disconnected nodes";
-    }
-
-    // Check for moved nodes (with threshold to avoid floating point issues)
-    const movedNode = toState.nodes.find((n) => {
-      const oldNode = fromState.nodes.find((fn) => fn.id === n.id);
-      if (!oldNode) return false;
-      const deltaX = Math.abs(oldNode.position.x - n.position.x);
-      const deltaY = Math.abs(oldNode.position.y - n.position.y);
-      return deltaX > 1 || deltaY > 1; // Threshold of 1px to avoid floating point issues
-    });
-    if (movedNode) {
-      return `Moved node "${movedNode.data.operation.label}"`;
-    }
-
-    // Check for changed node params
-    const changedNode = toState.nodes.find((n) => {
-      const oldNode = fromState.nodes.find((fn) => fn.id === n.id);
-      return (
-        oldNode &&
-        JSON.stringify(oldNode.data.params) !== JSON.stringify(n.data.params)
-      );
-    });
-    if (changedNode) {
-      return `Modified node "${changedNode.data.operation.label}"`;
-    }
-
-    return "Unknown change";
-  };
-
   // Save state to history when nodes/edges change (but not during drag or history restoration)
   useEffect(() => {
     if (movingNodes.current.size > 0 || isRestoringHistory.current) {
       return;
     }
 
-    const currentState = { nodes, edges };
+    const currentState = createHistoryState(nodes, edges);
     const currentHistoryState = history[historyIndex];
-
-    // Normalize states before comparison to ignore ReactFlow metadata
-    const normalizedCurrentNodes = currentState.nodes.map(normalizeNode);
-    const normalizedCurrentEdges = currentState.edges.map(normalizeEdge);
-    const normalizedHistoryNodes =
-      currentHistoryState?.nodes.map(normalizeNode) || [];
-    const normalizedHistoryEdges =
-      currentHistoryState?.edges.map(normalizeEdge) || [];
 
     // Only save if state actually changed
     if (
-      JSON.stringify(normalizedCurrentNodes) !==
-        JSON.stringify(normalizedHistoryNodes) ||
-      JSON.stringify(normalizedCurrentEdges) !==
-        JSON.stringify(normalizedHistoryEdges)
+      !currentHistoryState ||
+      !areHistoryStatesEqual(currentState, currentHistoryState)
     ) {
       // Remove any history after current index (when making changes after undo)
       const newHistory = history.slice(0, historyIndex + 1);
@@ -248,6 +352,8 @@ function App() {
 
       setHistory(newHistory);
     }
+    // The active history entry is intentionally read without making history
+    // changes recursively retrigger this effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nodes, edges]);
 
@@ -256,7 +362,7 @@ function App() {
     if (historyIndex > 0) {
       const currentState = history[historyIndex];
       const previousState = history[historyIndex - 1];
-      const description = describeChange(previousState, currentState);
+      const description = describeHistoryChange(previousState, currentState);
       setUndoDescription(description);
     } else {
       setUndoDescription("");
@@ -265,12 +371,11 @@ function App() {
     if (historyIndex < history.length - 1) {
       const currentState = history[historyIndex];
       const nextState = history[historyIndex + 1];
-      const description = describeChange(currentState, nextState);
+      const description = describeHistoryChange(currentState, nextState);
       setRedoDescription(description);
     } else {
       setRedoDescription("");
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [history, historyIndex]);
 
   // Undo function
@@ -325,6 +430,14 @@ function App() {
   // Keyboard shortcuts for undo/redo
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (isNewModelDialogOpen) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setIsNewModelDialogOpen(false);
+        }
+        return;
+      }
+
       if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "z") {
         e.preventDefault();
         redo();
@@ -337,7 +450,7 @@ function App() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [historyIndex, history]);
+  }, [historyIndex, history, isNewModelDialogOpen]);
 
   const handleAddNode = (operation: OperationDefinition) => {
     const newId = `node-${nodeCounter}`;
@@ -368,10 +481,16 @@ function App() {
   };
 
   const handleDeleteNode = (nodeId: string) => {
-    // Prevent deletion of Model Output node
+    // Prevent deletion of permanent nodes (Database source, Model Output)
     const nodeToDelete = nodes.find((n) => n.id === nodeId);
-    if (nodeToDelete?.data.operation.id === "dbt-model") {
-      console.warn("Model Output node cannot be deleted");
+    const permanentNodeIds = ["dbt-model", "database"];
+    if (
+      nodeToDelete &&
+      permanentNodeIds.includes(nodeToDelete.data.operation.id)
+    ) {
+      console.warn(
+        `${nodeToDelete.data.operation.label} node cannot be deleted`
+      );
       return;
     }
 
@@ -499,7 +618,7 @@ function App() {
               ...node,
               data: {
                 ...node.data,
-                params: cleanParams,
+                params: { ...node.data.params, ...cleanParams },
               },
             }
           : node
@@ -508,28 +627,192 @@ function App() {
   };
 
   // Save model to JSON file
-  const handleSaveModel = () => {
-    const modelData = {
-      version: "1.0",
-      timestamp: new Date().toISOString(),
-      modelName,
-      nodes,
-      edges,
-      nodeCounter,
-    };
+  const handleSaveModel = async (): Promise<boolean> => {
+    try {
+      const passwordSnapshot = createDatabaseSecretSnapshot(nodes);
+      const hasPasswords = Object.keys(passwordSnapshot.passwords).length > 0;
+      const exportEnvelope = hasPasswords
+        ? await api.encryptProjectSecrets(
+            projectId,
+            passwordSnapshot.passwords,
+            secretEnvelope
+          )
+        : secretsReady
+          ? null
+          : secretEnvelope;
 
-    const json = JSON.stringify(modelData, null, 2);
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    // Use model name for filename (sanitized)
-    const sanitizedName = modelName.replace(/[^a-z0-9]/gi, "_").toLowerCase();
-    link.download = `${sanitizedName || "untitled"}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+      if (hasPasswords) {
+        persistSecretEnvelopeImmediately(exportEnvelope);
+        setSecretEnvelope(exportEnvelope);
+        setSecretsReady(true);
+      }
+
+      const modelData = createCurrentModelSnapshot({
+        projectId,
+        modelName,
+        nodes,
+        edges,
+        nodeCounter,
+        secretEnvelope: exportEnvelope ?? undefined,
+      });
+
+      const json = JSON.stringify(modelData, null, 2);
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      // Use model name for filename (sanitized)
+      const sanitizedName = modelName
+        .replace(/[^a-z0-9]/gi, "_")
+        .toLowerCase();
+      link.download = `${sanitizedName || "untitled"}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      return true;
+    } catch (error) {
+      console.error("Failed to encrypt model secrets", error);
+      alert(
+        "The model could not be saved because its database password could not be encrypted. Make sure the backend is running."
+      );
+      return false;
+    }
+  };
+
+  const createNewModel = () => {
+    const blankModel = createBlankModelState();
+    const blankHistory = createHistoryState(
+      blankModel.nodes,
+      blankModel.edges
+    );
+
+    isRestoringHistory.current = true;
+    movingNodes.current.clear();
+    setProjectId(createProjectId());
+    setSecretEnvelope(null);
+    setSecretsReady(true);
+    setNodes(blankModel.nodes);
+    setEdges(blankModel.edges);
+    setNodeCounter(blankModel.nodeCounter);
+    setModelName(blankModel.modelName);
+    previousModelName.current = blankModel.modelName;
+    setIsEditingName(false);
+    setSelectedNodeId(null);
+    setHistory([blankHistory]);
+    setHistoryIndex(0);
+    setUndoDescription("");
+    setRedoDescription("");
+    setQueryResults(null);
+    setTestError(null);
+    setIsResultsPanelExpanded(false);
+    setIsNewModelDialogOpen(false);
+    setIsModelMenuOpen(false);
+
+    window.setTimeout(() => {
+      isRestoringHistory.current = false;
+    }, 0);
+  };
+
+  const saveAndCreateNewModel = async () => {
+    if (await handleSaveModel()) {
+      createNewModel();
+    }
+  };
+
+  // Preview the compiled dbt model directly on the source in read-only mode.
+  const handleTestModel = async () => {
+    // Find database node for credentials
+    const databaseNode = nodes.find((n) => n.data.operation.id === "database");
+
+    if (!databaseNode) {
+      setTestError(
+        "No database node found. Add a Database node with connection credentials."
+      );
+      setIsResultsPanelExpanded(true);
+      return;
+    }
+
+    const adapterConfig = databaseNode.data.params?.adapter as
+      | Record<string, unknown>
+      | undefined;
+    const sourceCredentials = buildDatabaseCredentials(adapterConfig);
+    if (!sourceCredentials) {
+      setTestError(
+        "Database node is not configured. Please configure connection credentials."
+      );
+      setIsResultsPanelExpanded(true);
+      return;
+    }
+
+    if (!ENABLED_DBT_ADAPTER_IDS.has(sourceCredentials.type)) {
+      setTestError(
+        "Live dbt testing supports PostgreSQL only. This adapter has not been validated yet."
+      );
+      setIsResultsPanelExpanded(true);
+      return;
+    }
+
+    // Generate dbt model files
+    const dbtResult = generateDbtModel(nodes, edges, modelName);
+
+    // Check for generation errors
+    if (dbtResult.errors.length > 0) {
+      setTestError(`Generation errors:\n${dbtResult.errors.join("\n")}`);
+      setIsResultsPanelExpanded(true);
+      return;
+    }
+
+    if (dbtResult.files.length === 0) {
+      setTestError(
+        "No dbt files generated. Please ensure your flow has a complete pipeline."
+      );
+      setIsResultsPanelExpanded(true);
+      return;
+    }
+
+    // Debug: log generated files to console
+    console.log("=== Generated dbt Files ===");
+    dbtResult.files.forEach((f) => {
+      console.log(`--- ${f.path} ---`);
+      console.log(f.content);
+    });
+    console.log("===========================");
+
+    setIsTestLoading(true);
+    setTestError(null);
+    setIsResultsPanelExpanded(true);
+    setQueryResults(null);
+
+    try {
+      // Compile the exported files and query the source without materialization.
+      const result = await api.runDbtModel(
+        dbtResult.files,
+        undefined, // auto-detect model name
+        sourceCredentials
+      );
+
+      if (!result.success) {
+        setTestError(result.error || "Model preview failed");
+        if (result.output) {
+          console.log("dbt output:", result.output);
+        }
+        return;
+      }
+
+      // Set results for display
+      setQueryResults({
+        columns: result.columns,
+        data: result.data,
+        row_count: result.row_count,
+      });
+    } catch (error) {
+      setTestError(
+        error instanceof Error ? error.message : "dbt execution failed"
+      );
+    } finally {
+      setIsTestLoading(false);
+    }
   };
 
   // Load model from JSON file
@@ -538,24 +821,52 @@ function App() {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const json = e.target?.result as string;
-        const modelData = JSON.parse(json);
-
-        // Validate structure
-        if (!modelData.nodes || !modelData.edges) {
+        const modelData = parseCurrentModel(json);
+        if (!modelData) {
           alert("Invalid model file format");
           return;
         }
 
-        // Check if model has a Model Output node, add one if missing
+        // Check if model has permanent nodes, add them if missing
         const hasModelOutput = modelData.nodes.some(
           (n: { data?: { operation?: { id?: string } } }) =>
             n.data?.operation?.id === "dbt-model"
         );
+        const hasDatabase = modelData.nodes.some(
+          (n: { data?: { operation?: { id?: string } } }) =>
+            n.data?.operation?.id === "database"
+        );
 
-        let nodesToLoad = modelData.nodes;
+        let nodesToLoad: Node<OperationNodeData>[] = modelData.nodes;
+
+        // Add Database node if missing
+        if (!hasDatabase) {
+          const databaseOp = OPERATION_DEFS.find((op) => op.id === "database");
+          if (databaseOp) {
+            // Position to the left of all nodes
+            const minX = Math.min(
+              ...modelData.nodes.map(
+                (n: { position?: { x?: number } }) => n.position?.x || 0
+              ),
+              0
+            );
+            const newDatabaseNode = {
+              id: "database-source",
+              type: "operation",
+              position: { x: minX - 400, y: 300 },
+              data: {
+                operation: databaseOp,
+                params: {},
+              },
+            };
+            nodesToLoad = [newDatabaseNode, ...nodesToLoad];
+          }
+        }
+
+        // Add Model Output node if missing
         if (!hasModelOutput) {
           const modelOutputOp = OPERATION_DEFS.find(
             (op) => op.id === "dbt-model"
@@ -563,14 +874,14 @@ function App() {
           if (modelOutputOp) {
             // Find the rightmost node to position Model Output to the right
             const maxX = Math.max(
-              ...modelData.nodes.map(
+              ...nodesToLoad.map(
                 (n: { position?: { x?: number } }) => n.position?.x || 0
               ),
               0
             );
             const newModelOutputNode = {
               id: "model-output",
-              type: "operation", // Changed from "operationNode" to "operation"
+              type: "operation",
               position: { x: maxX + 400, y: 300 },
               data: {
                 operation: modelOutputOp,
@@ -580,25 +891,68 @@ function App() {
                 },
               },
             };
-            nodesToLoad = [...modelData.nodes, newModelOutputNode];
+            nodesToLoad = [...nodesToLoad, newModelOutputNode];
+          }
+        }
+
+        let importedSecretsReady = !modelData.secretEnvelope;
+        let secretImportFailed = false;
+        if (modelData.secretEnvelope) {
+          try {
+            const passwords = await api.decryptProjectSecrets(
+              modelData.secretEnvelope
+            );
+            nodesToLoad = hydrateDatabaseSecrets(nodesToLoad, {
+              version: "1.0",
+              passwords,
+            });
+            importedSecretsReady = true;
+          } catch (error) {
+            console.warn(
+              error instanceof Error
+                ? error.message
+                : "Unable to unlock imported project secrets"
+            );
+            secretImportFailed = true;
           }
         }
 
         // Restore state
+        secretEnvelopeRef.current = modelData.secretEnvelope ?? null;
+        persistCurrentModel({
+          projectId: modelData.projectId,
+          modelName: modelData.modelName || file.name.replace(".json", ""),
+          nodes: nodesToLoad,
+          edges: modelData.edges,
+          nodeCounter: modelData.nodeCounter ?? nodesToLoad.length,
+          secretEnvelope: modelData.secretEnvelope,
+        });
+        isRestoringHistory.current = true;
+        movingNodes.current.clear();
+        setProjectId(modelData.projectId);
+        setSecretEnvelope(modelData.secretEnvelope ?? null);
+        setSecretsReady(importedSecretsReady);
         setNodes(nodesToLoad);
         setEdges(modelData.edges);
-        setNodeCounter(modelData.nodeCounter || nodesToLoad.length);
+        setNodeCounter(modelData.nodeCounter ?? nodesToLoad.length);
         setModelName(modelData.modelName || file.name.replace(".json", ""));
+        previousModelName.current =
+          modelData.modelName || file.name.replace(".json", "");
         setSelectedNodeId(null);
 
         // Reset history with the loaded state as initial state
-        setHistory([
-          {
-            nodes: nodesToLoad,
-            edges: modelData.edges,
-          },
-        ]);
+        setHistory([createHistoryState(nodesToLoad, modelData.edges)]);
         setHistoryIndex(0);
+
+        window.setTimeout(() => {
+          isRestoringHistory.current = false;
+        }, 0);
+
+        if (secretImportFailed) {
+          alert(
+            "The model was loaded, but its database password was encrypted by another installation and could not be restored."
+          );
+        }
       } catch (error) {
         console.error("Failed to load model:", error);
         alert("Failed to load model file");
@@ -617,6 +971,30 @@ function App() {
         params: selectedNode.data.params,
       }
     : null;
+
+  const inspectorSourceCredentials = useMemo(() => {
+    if (!selectedNode || selectedNode.data.operation.id !== "source-table") {
+      return null;
+    }
+
+    const databaseEdge = edges.find((edge) => {
+      if (edge.target !== selectedNode.id) return false;
+      return nodes.some(
+        (candidate) =>
+          candidate.id === edge.source &&
+          candidate.data.operation.id === "database"
+      );
+    });
+    if (!databaseEdge) return null;
+
+    const databaseNode = nodes.find(
+      (candidate) => candidate.id === databaseEdge.source
+    );
+    const adapter = databaseNode?.data.params?.adapter as
+      | Record<string, unknown>
+      | undefined;
+    return buildDatabaseCredentials(adapter);
+  }, [edges, nodes, selectedNode]);
 
   // Calculate available columns for the selected node
   const availableColumns = useMemo(() => {
@@ -1097,6 +1475,8 @@ function App() {
             <button
               ref={modelButtonRef}
               className="normal-button w-30 p-2 rounded-full"
+              aria-haspopup="menu"
+              aria-expanded={isModelMenuOpen}
               onClick={() => {
                 if (!isModelMenuOpen && modelButtonRef.current) {
                   const rect = modelButtonRef.current.getBoundingClientRect();
@@ -1139,6 +1519,35 @@ function App() {
                 }}
               >
                 <button
+                  type="button"
+                  className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/60 dark:hover:bg-gray-500/30 transition-colors flex items-center gap-2 text-sm font-medium"
+                  onClick={() => {
+                    setIsModelMenuOpen(false);
+                    setIsNewModelDialogOpen(true);
+                  }}
+                >
+                  <svg
+                    className="w-4 h-4"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                    aria-hidden="true"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 4v16m8-8H4"
+                    />
+                  </svg>
+                  New
+                </button>
+                <div
+                  role="separator"
+                  className="mx-3 my-1 border-t border-gray-300/70 dark:border-gray-600/70"
+                />
+                <button
+                  type="button"
                   className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/60 dark:hover:bg-gray-500/30 transition-colors flex items-center gap-2 text-sm font-medium"
                   onClick={() => {
                     fileInputRef.current?.click();
@@ -1161,9 +1570,10 @@ function App() {
                   Load
                 </button>
                 <button
+                  type="button"
                   className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/60 dark:hover:bg-gray-500/30 transition-colors flex items-center gap-2 text-sm font-medium"
                   onClick={() => {
-                    handleSaveModel();
+                    void handleSaveModel();
                     setIsModelMenuOpen(false);
                   }}
                 >
@@ -1183,6 +1593,7 @@ function App() {
                   Save
                 </button>
                 <button
+                  type="button"
                   className="w-full text-left px-4 py-2.5 rounded-xl hover:bg-white/60 dark:hover:bg-gray-500/30 transition-colors flex items-center gap-2 text-sm font-medium"
                   onClick={() => {
                     handleGenerateDbt();
@@ -1208,12 +1619,121 @@ function App() {
               document.body
             )}
 
+          {isNewModelDialogOpen &&
+            createPortal(
+              <div
+                className="fixed inset-0 z-[10000] flex items-center justify-center bg-gray-950/70 p-4 backdrop-blur-sm"
+                onMouseDown={(event) => {
+                  if (event.target === event.currentTarget) {
+                    setIsNewModelDialogOpen(false);
+                  }
+                }}
+              >
+                <section
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="new-model-title"
+                  aria-describedby="new-model-description"
+                  className="w-full max-w-lg rounded-3xl border border-gray-200 bg-white p-6 shadow-2xl dark:border-gray-700 dark:bg-gray-800"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-orange-500/15 text-orange-500">
+                      <svg
+                        className="h-5 w-5"
+                        fill="none"
+                        viewBox="0 0 24 24"
+                        stroke="currentColor"
+                        aria-hidden="true"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M12 4v16m8-8H4"
+                        />
+                      </svg>
+                    </div>
+                    <div className="min-w-0">
+                      <h2
+                        id="new-model-title"
+                        className="text-xl font-semibold text-gray-900 dark:text-gray-100"
+                      >
+                        Create a new model?
+                      </h2>
+                      <p
+                        id="new-model-description"
+                        className="mt-2 text-sm leading-6 text-gray-600 dark:text-gray-300"
+                      >
+                        Do you want to save changes to{` `}
+                        <span className="font-semibold break-words">
+                          “{modelName}”
+                        </span>{` `}
+                        before starting over?
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="mt-7 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                    <button
+                      type="button"
+                      className="normal-button px-5 py-2.5"
+                      onClick={() => setIsNewModelDialogOpen(false)}
+                      autoFocus
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="normal-button px-5 py-2.5 text-red-500 dark:text-red-400"
+                      onClick={createNewModel}
+                    >
+                      Don&apos;t save
+                    </button>
+                    <button
+                      type="button"
+                      className="highlight-button px-5 py-2.5"
+                      onClick={saveAndCreateNewModel}
+                    >
+                      Save &amp; New
+                    </button>
+                  </div>
+                </section>
+              </div>,
+              document.body
+            )}
+
           {/* Test Button */}
           <button
-            className="highlight-button w-30 p-2 rounded-full"
-            onClick={() => alert("Test functionality coming soon!")}
+            className="highlight-button w-30 p-2 rounded-full flex items-center justify-center gap-2"
+            onClick={handleTestModel}
+            disabled={isTestLoading}
           >
-            Test
+            {isTestLoading ? (
+              <>
+                <svg
+                  className="w-4 h-4 animate-spin"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                Testing...
+              </>
+            ) : (
+              "Test"
+            )}
           </button>
         </div>
       </header>
@@ -1228,7 +1748,10 @@ function App() {
       />
 
       <div className="main-content flex">
-        <Toolbox onAddNode={handleAddNode} />
+        <Toolbox
+          onAddNode={handleAddNode}
+          onLayoutChange={handleToolboxLayoutChange}
+        />
         <Flowchart
           nodes={nodes}
           edges={edges}
@@ -1237,6 +1760,9 @@ function App() {
           onSelectNode={handleSelectNode}
           onSaveParams={handleSaveParams}
           selectedNodeId={selectedNodeId}
+          isToolboxOpen={isToolboxOpen}
+          getFitViewLeftPadding={getFitViewLeftPadding}
+          getFitViewRightPadding={getFitViewRightPadding}
           onNodeDragStart={(_, node) => {
             movingNodes.current.add(node.id);
           }}
@@ -1251,8 +1777,21 @@ function App() {
           onClose={handleCloseInspector}
           onDelete={handleDeleteNode}
           availableColumns={availableColumns}
+          sourceCredentials={inspectorSourceCredentials}
+          onLayoutChange={handleInspectorLayoutChange}
         />
       </div>
+
+      {/* Persistent Query Results Panel */}
+      <QueryResultsPanel
+        initialColumns={queryResults?.columns || []}
+        initialData={queryResults?.data || []}
+        initialTotalRows={queryResults?.row_count || 0}
+        isLoading={isTestLoading}
+        error={testError}
+        isExpanded={isResultsPanelExpanded}
+        onExpandedChange={setIsResultsPanelExpanded}
+      />
     </>
   );
 }
