@@ -1,0 +1,679 @@
+/**
+ * dbt Flow Designer - Stylesheet
+ *
+ * Organization:
+ * 1. Imports
+ * 2. CSS Variables
+ * 3. Base Layer (reset & defaults)
+ * 4. Components Layer (reusable components)
+ * 5. Utilities Layer (custom utilities)
+ * 6. Third-party Overrides (React Flow)
+ * 7. Animations
+ */
+
+/* =============================================================================
+   1. IMPORTS
+   ============================================================================= */
+
+@import "tailwindcss";
+@import "@xyflow/react/dist/style.css";
+
+/* =============================================================================
+   2. CSS VARIABLES
+   ============================================================================= */
+
+:root {
+  /* Animation timings */
+  --transition-fast: 150ms;
+  --transition-normal: 200ms;
+  --transition-slow: 300ms;
+
+  /* Scrollbar colors */
+  --scrollbar-color: #d1d5db; /* gray-300 */
+}
+
+.dark {
+  --scrollbar-color: #374151; /* gray-700 */
+}
+
+/* =============================================================================
+   3. BASE LAYER
+   ============================================================================= */
+
+@layer base {
+  /* Root styling */
+  :root {
+    font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+
+    @apply bg-gray-300 text-gray-700 dark:bg-gray-900 dark:text-gray-200;
+  }
+
+  html,
+  body,
+  #root {
+    @apply h-full;
+  }
+
+  /* Dark mode shadows */
+  .dark .shadow-md {
+    box-shadow: 0 4px 6px -1px rgba(255, 255, 255, 0.7),
+      0 2px 4px -2px rgba(0, 0, 0, 0.7);
+  }
+
+  .dark .shadow-lg {
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.8),
+      0 4px 6px -4px rgba(0, 0, 0, 0.8);
+  }
+
+  .dark .shadow-xl {
+    box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.85),
+      0 8px 10px -6px rgba(0, 0, 0, 0.85);
+  }
+
+  .dark .shadow-2xl {
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.9);
+  }
+
+  /* Interactive elements */
+  button {
+    @apply cursor-pointer transition-colors;
+  }
+
+  /* Form elements */
+  input,
+  select {
+    @apply min-w-0 w-full h-8 px-2
+      text-sm rounded-xl
+      border shadow-inner transition-colors
+      border-white/80 bg-gray-300/20
+      dark:border-gray-700 dark:bg-gray-800/10 dark:shadow-black/25;
+  }
+
+  input[type="checkbox"],
+  input[type="radio"] {
+    @apply h-4 w-4 min-w-4 shrink-0 rounded-sm p-0 shadow-none;
+  }
+
+  select {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+    background-size: 1rem;
+    @apply pr-6.5 text-ellipsis;
+  }
+
+  .dark select {
+    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'/%3e%3c/svg%3e");
+  }
+
+  /* Header */
+  header {
+    @apply absolute top-0 z-50
+      flex flex-1 items-center gap-4
+      w-full px-6 py-4
+      border-b backdrop-blur-md drop-shadow-xl
+      bg-gray-200/30 border-gray-100 drop-shadow-black/7
+      dark:bg-gray-800/50 dark:border-gray-700 dark:drop-shadow-black/20;
+  }
+
+  header h1 {
+    @apply text-3xl font-bold text-orange-600;
+  }
+
+  /* Resize cursor state - horizontal */
+  body.resizing-col {
+    cursor: col-resize !important;
+  }
+
+  body.resizing-col * {
+    pointer-events: none !important;
+  }
+
+  /* Resize cursor state - vertical */
+  body.resizing-row {
+    cursor: row-resize !important;
+  }
+
+  body.resizing-row * {
+    pointer-events: none !important;
+  }
+
+  /* Legacy class for backwards compatibility */
+  body.resizing {
+    cursor: col-resize !important;
+  }
+
+  body.resizing * {
+    pointer-events: none !important;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar {
+    width: 12px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background-color: transparent;
+    margin-block: 1rem;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--scrollbar-color);
+    border-radius: 9999px;
+    border: 3px solid transparent;
+    background-clip: content-box;
+    transition: background-color var(--transition-fast);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--scrollbar-color);
+    border-width: 2px;
+  }
+
+  .inspector-scroll::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(156, 163, 175, 0.8);
+  }
+}
+
+/* =============================================================================
+   4. COMPONENTS LAYER
+   ============================================================================= */
+
+@layer components {
+  /* Layout */
+  .main-content {
+    @apply flex flex-row w-full min-h-[calc(100vh-5rem)] px-4;
+  }
+
+  .flowchart {
+    @apply absolute inset-0;
+  }
+
+  /* Panels */
+  .panel {
+    @apply my-4 rounded-3xl overflow-x-clip
+      border backdrop-blur-md drop-shadow-xl
+      bg-gray-200/30 border-gray-100
+      dark:bg-gray-800/50 dark:border-gray-700 dark:drop-shadow-black/20;
+  }
+
+  /* Cards */
+  .card {
+    @apply rounded-2xl shadow-md border
+      bg-white/60 border-gray-100
+      dark:bg-gray-800/60 dark:border-gray-700;
+  }
+
+  /* Inspector content uses rhythm and dividers instead of nested cards. */
+  .inspector-section {
+    @apply border-y border-gray-300/70 py-4
+      dark:border-gray-700/80;
+  }
+
+  .inspector-list {
+    @apply border-y border-gray-300/70 divide-y divide-gray-300/60
+      dark:border-gray-700/80 dark:divide-gray-700/70;
+  }
+
+  .inspector-repeat-row {
+    @apply border-t border-gray-300/70 py-4 first:border-t-0
+      dark:border-gray-700/80;
+  }
+
+  .inspector-callout {
+    @apply border-l-2 px-3 py-2;
+  }
+
+  /* Nodes */
+  .node {
+    @apply px-6 py-4 rounded-2xl
+      shadow-lg hover:shadow-xl border
+      border-gray-100 hover:border-white
+      bg-[#dbdee3] hover:bg-gray-100
+      dark:border-gray-700 dark:hover:border-gray-500
+      dark:bg-gray-800 dark:hover:bg-gray-700;
+    transition: background-color var(--transition-fast),
+      border-color var(--transition-fast), box-shadow var(--transition-fast);
+  }
+
+  .node.selected {
+    @apply shadow-xl
+      border-white bg-gray-100
+      dark:border-gray-500 dark:bg-gray-700;
+  }
+
+  .node-separator {
+    transition: border-color var(--transition-fast);
+  }
+
+  .toolbox-node {
+    @apply px-6 py-4 rounded-2xl
+      shadow-md hover:shadow-lg border
+      border-gray-100 hover:border-white
+      bg-gray-100/40 hover:bg-white/60
+      dark:border-gray-700 dark:hover:border-gray-500
+      dark:bg-gray-700/40 dark:hover:bg-gray-500/40;
+    transition: background-color var(--transition-fast),
+      border-color var(--transition-fast), box-shadow var(--transition-fast);
+  }
+
+  /* Keep the visual glass panel independent from the scrolling content. */
+  .toolbox-panel-surface {
+    margin-block: 0;
+    pointer-events: none;
+  }
+
+  /* The mask owns painting; the nested nav owns scrolling and sticky layout. */
+  .toolbox-viewport {
+    contain: layout paint;
+    isolation: isolate;
+    min-width: 0;
+  }
+
+  /* Fade scrolled cards themselves as they pass beneath sticky headers. */
+  .toolbox-category-content {
+    --toolbox-category-mask-start: -1rem;
+    mask-image: linear-gradient(
+      to bottom,
+      transparent var(--toolbox-category-mask-start),
+      black calc(var(--toolbox-category-mask-start) + 1rem)
+    );
+    mask-repeat: no-repeat;
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent var(--toolbox-category-mask-start),
+      black calc(var(--toolbox-category-mask-start) + 1rem)
+    );
+    -webkit-mask-repeat: no-repeat;
+  }
+
+  .toolbox-scroll {
+    min-width: 0;
+    overflow-anchor: none;
+    overscroll-behavior-y: contain;
+    scrollbar-gutter: stable;
+  }
+
+  .toolbox-scroll::-webkit-scrollbar-track {
+    margin-block: 0;
+  }
+
+  .inspector-scroll {
+    margin-right: calc(-1 * var(--inspector-scrollbar-width, 0px));
+    scrollbar-gutter: stable;
+  }
+
+  .toolbox-category-reveal {
+    transition: grid-template-rows 220ms ease;
+  }
+
+  .toolbox-category-list-motion {
+    opacity: 0;
+    transform: translateY(-0.5rem);
+    transition: transform 220ms ease, opacity 160ms ease;
+  }
+
+  .toolbox-category-list-motion-expanded {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  /* Node icons */
+  .node-icon {
+    @apply rounded-full flex justify-center items-center
+      shadow-md border
+      border-gray-100 bg-gray-100/50
+      dark:border-gray-700 dark:bg-gray-700/50;
+  }
+
+  .node:hover .node-icon,
+  .toolbox-node:hover .node-icon {
+    @apply border-gray-50 dark:border-gray-600;
+  }
+
+  .node.selected .node-icon {
+    @apply shadow-lg
+      border-white bg-white
+      dark:border-gray-500 dark:bg-gray-500/50;
+  }
+
+  .node.selected .node-icon svg {
+    @apply stroke-orange-400;
+  }
+
+  /* Buttons */
+  .normal-button {
+    @apply rounded-full font-semibold
+      shadow-md hover:shadow-lg border
+      text-gray-500 hover:text-gray-400
+      border-gray-100 hover:border-white
+      bg-gray-100/50 hover:bg-white/50
+      dark:text-gray-400 dark:hover:text-gray-200
+      dark:border-gray-700 dark:hover:border-gray-500
+      dark:bg-gray-700/50 dark:hover:bg-gray-500/50;
+  }
+
+  .node:hover .normal-button,
+  .toolbox-node:hover .normal-button {
+    @apply border-gray-50 dark:border-gray-600;
+  }
+
+  .node.selected .normal-button {
+    @apply border-gray-50 hover:border-white
+      dark:border-gray-600 dark:hover:border-gray-500;
+  }
+
+  .highlight-button {
+    @apply rounded-full font-semibold
+      shadow-md hover:shadow-lg
+      text-gray-200
+      bg-orange-600 hover:bg-orange-400
+      hover:shadow-orange-400/20
+      dark:border-gray-700;
+  }
+
+  .delete-button {
+    @apply rounded-full font-semibold
+      shadow-md hover:shadow-lg border
+      text-red-600 hover:text-red-400
+      border-gray-100 hover:border-red-50
+      bg-gray-100/50 hover:bg-red-100/50
+      dark:text-red-500 dark:hover:text-red-200
+      dark:border-gray-700 dark:hover:border-red-300/40
+      dark:bg-gray-700/50 dark:hover:bg-red-200/40;
+  }
+
+  /* Tooltip */
+  .tooltip-content {
+    @apply fixed z-9999 pointer-events-none
+      w-fit max-w-60 px-3 py-2
+      text-xs rounded-xl
+      shadow-xl border backdrop-blur-md
+      border-gray-100 bg-white/80
+      dark:border-gray-700 dark:bg-gray-700/80;
+  }
+
+  /* Filter builder */
+  .filter-group {
+    @apply p-3 rounded-2xl
+      border-2 border-dashed
+      bg-gray-100/50 border-gray-300
+      dark:bg-gray-900/30 dark:border-gray-600;
+  }
+
+  /* Toggle switch */
+  .toggle-track {
+    @apply rounded-full shadow-inner border
+      transition-colors duration-300
+      bg-gray-200/50 border-gray-100
+      dark:bg-gray-700/30 dark:border-gray-700 dark:shadow-black/30;
+  }
+
+  .toggle-thumb {
+    @apply rounded-full transition-colors
+      drop-shadow-md bg-orange-600
+      dark:drop-shadow-black/25;
+  }
+
+  .toggle-track:hover .toggle-thumb {
+    @apply bg-orange-400 drop-shadow-lg drop-shadow-orange-400;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  .node:hover .node-separator,
+  .node.selected .node-separator {
+    border-color: var(--color-gray-500);
+  }
+}
+
+/* =============================================================================
+   5. UTILITIES LAYER
+   ============================================================================= */
+
+@layer utilities {
+  /* Mask gradients for scrollable areas */
+  .mask-gradient-top {
+    mask-image: linear-gradient(to bottom, transparent 0px, black 16px),
+      linear-gradient(to left, black, black);
+    mask-size: calc(100% - 10px) 100%, 10px 100%;
+    mask-position: left top, right top;
+    mask-repeat: no-repeat;
+  }
+
+  .mask-gradient-both {
+    --fade-start: 0;
+    --fade-mid: 32px;
+    --fade-end-start: calc(100% - 60px);
+    --fade-end: 100%;
+
+    mask-image: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0) var(--fade-start),
+        rgba(0, 0, 0, 0.7) 16px,
+        rgba(0, 0, 0, 0.85) 20.8px,
+        rgba(0, 0, 0, 0.925) 24.16px,
+        rgba(0, 0, 0, 0.963) 26.512px,
+        rgba(0, 0, 0, 0.981) 28.16px,
+        rgba(0, 0, 0, 1) var(--fade-mid),
+        rgba(0, 0, 0, 1) var(--fade-end-start),
+        rgba(0, 0, 0, 0.981) calc(100% - 52.8px),
+        rgba(0, 0, 0, 0.963) calc(100% - 49.71px),
+        rgba(0, 0, 0, 0.925) calc(100% - 45.3px),
+        rgba(0, 0, 0, 0.85) calc(100% - 39px),
+        rgba(0, 0, 0, 0.7) calc(100% - 30px),
+        rgba(0, 0, 0, 0) var(--fade-end)
+      ),
+      linear-gradient(to left, black, black);
+    mask-size: calc(100% - 10px) 100%, 10px 100%;
+    mask-position: left top, right top;
+    mask-repeat: no-repeat;
+  }
+
+  .mask-gradient-bottom {
+    --fade-end-start: calc(100% - 60px);
+    --fade-end: 100%;
+
+    mask-image: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 1) 0%,
+        rgba(0, 0, 0, 1) var(--fade-end-start),
+        rgba(0, 0, 0, 0.981) calc(100% - 52.8px),
+        rgba(0, 0, 0, 0.963) calc(100% - 49.71px),
+        rgba(0, 0, 0, 0.925) calc(100% - 45.3px),
+        rgba(0, 0, 0, 0.85) calc(100% - 39px),
+        rgba(0, 0, 0, 0.7) calc(100% - 30px),
+        rgba(0, 0, 0, 0) var(--fade-end)
+      ),
+      linear-gradient(to left, black, black);
+    mask-size: calc(100% - 10px) 100%, 10px 100%;
+    mask-position: left top, right top;
+    mask-repeat: no-repeat;
+  }
+
+  .toolbox-mask-gradient {
+    --fade-start-end: 16px;
+    --fade-end-start: calc(100% - 60px);
+    --fade-end: 100%;
+
+    mask-image: linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, 0) 0,
+        rgba(0, 0, 0, 0.7) 8px,
+        rgba(0, 0, 0, 0.85) 10.4px,
+        rgba(0, 0, 0, 0.925) 12.08px,
+        rgba(0, 0, 0, 0.963) 13.256px,
+        rgba(0, 0, 0, 0.981) 14.08px,
+        rgba(0, 0, 0, 1) var(--fade-start-end),
+        rgba(0, 0, 0, 1) var(--fade-end-start),
+        rgba(0, 0, 0, 0.981) calc(100% - 52.8px),
+        rgba(0, 0, 0, 0.963) calc(100% - 49.71px),
+        rgba(0, 0, 0, 0.925) calc(100% - 45.3px),
+        rgba(0, 0, 0, 0.85) calc(100% - 39px),
+        rgba(0, 0, 0, 0.7) calc(100% - 30px),
+        rgba(0, 0, 0, 0) var(--fade-end)
+      ),
+      linear-gradient(to left, black, black);
+    mask-size: calc(100% - 10px) 100%, 10px 100%;
+    mask-position: left top, right top;
+    mask-repeat: no-repeat;
+  }
+}
+
+/* =============================================================================
+   6. THIRD-PARTY OVERRIDES (React Flow)
+   ============================================================================= */
+
+/* React Flow theme variables */
+.react-flow {
+  --xy-handle-background-color-default: #9ca3af; /* gray-400 */
+  --xy-handle-border-color-default: #9ca3af; /* gray-400 */
+}
+
+@media (prefers-color-scheme: dark) {
+  .react-flow {
+    --xy-background-pattern-dots-color-default: #4b5563; /* gray-600 */
+    --xy-handle-background-color-default: #4b5563; /* gray-600 */
+    --xy-handle-border-color-default: #4b5563; /* gray-600 */
+  }
+}
+
+/* Controls */
+.react-flow .react-flow__controls {
+  @apply flex-row gap-2 shadow-none
+    fixed! bottom-[0.1rem] left-[calc(50%-2.3rem)];
+}
+
+.react-flow .react-flow__controls-button {
+  @apply rounded-full font-semibold
+    backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border
+    text-gray-500 hover:text-gray-400
+    border-gray-100 hover:border-white
+    bg-gray-100/50 hover:bg-white/50
+    dark:text-gray-400 dark:hover:text-gray-200
+    dark:border-gray-700 dark:hover:border-gray-500
+    dark:bg-gray-700/50 dark:hover:bg-gray-500/50
+    dark:drop-shadow-black/30
+    hover:drop-shadow-white dark:hover:drop-shadow-white/10;
+}
+
+/* Edges */
+.react-flow__edge path {
+  @apply stroke-gray-400! dark:stroke-gray-600!;
+}
+
+.react-flow__edge circle {
+  @apply fill-gray-400! dark:fill-gray-600!;
+}
+
+.react-flow__edge:hover path {
+  @apply stroke-gray-200! dark:stroke-gray-400! transition-colors;
+}
+
+.react-flow__edge:hover circle {
+  @apply fill-gray-200! dark:fill-gray-400! transition-colors;
+}
+
+.react-flow__edge.selected path {
+  @apply stroke-white! dark:stroke-gray-300!;
+}
+
+.react-flow__edge.selected circle {
+  @apply fill-white! dark:fill-gray-300!;
+}
+
+.react-flow__connectionline path {
+  @apply stroke-gray-400! dark:stroke-gray-600!;
+}
+
+/* Hide default attribution */
+.react-flow__attribution {
+  display: none !important;
+}
+
+/* Custom attribution link */
+.flowchart-attribution {
+  @apply fixed bottom-[1.04rem] left-1/2 -translate-x-1/2 -ml-17
+    px-2 py-1
+    text-[0.7rem] rounded-lg
+    cursor-pointer hover:underline
+    backdrop-blur-md drop-shadow-md hover:drop-shadow-lg border
+    text-gray-500 hover:text-gray-400
+    border-gray-100 hover:border-white
+    bg-gray-100/50 hover:bg-white/50
+    dark:text-gray-400 dark:hover:text-gray-200
+    dark:border-gray-700 dark:hover:border-gray-500
+    dark:bg-gray-700/50 dark:hover:bg-gray-500/50
+    dark:drop-shadow-black/30
+    hover:drop-shadow-white dark:hover:drop-shadow-white/10;
+}
+
+/* =============================================================================
+   7. ANIMATIONS
+   ============================================================================= */
+
+/* Slide animations for toolbox toggle */
+@keyframes slideInFromLeft {
+  from {
+    transform: translateX(-100%) translateY(-50%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0) translateY(-50%);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutToLeft {
+  from {
+    transform: translateX(0) translateY(-50%);
+    opacity: 1;
+  }
+  to {
+    transform: translateX(-100%) translateY(-50%);
+    opacity: 0;
+  }
+}
+
+@keyframes slideInFromBottom {
+  from {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+@keyframes slideOutToBottom {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(100%);
+    opacity: 0;
+  }
+}
+
+/* Edge animation */
+@keyframes dashdraw {
+  from {
+    stroke-dashoffset: 40;
+  }
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.animated-edge-path {
+  stroke-dasharray: 10 30;
+  stroke: #f97316; /* orange-500 */
+  animation: dashdraw 1s linear infinite;
+}
