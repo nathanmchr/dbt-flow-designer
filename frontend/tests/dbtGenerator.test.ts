@@ -75,6 +75,22 @@ const postgresDatabase = node("database", "database", {
   },
 });
 
+test("defaults DuckDB sources to main without exposing its local path in dbt SQL", () => {
+  const result = generateDbtModel(
+    [
+      node("database", "database", { adapter: { type: "duckdb", path: "/private/sales.duckdb" } }),
+      node("orders", "source-table", { table: "orders", columns: [{ name: "order_id", type: "INTEGER" }] }),
+      node("output", "dbt-model"),
+    ],
+    [edge("db-orders", "database", "orders"), edge("orders-output", "orders", "output")],
+    "DuckDB Orders"
+  );
+  assert.deepEqual(result.errors, []);
+  assert.match(file(result, "sources.yml"), /schema: "main"/);
+  assert.doesNotMatch(result.files.map((generated) => generated.content).join("\n"), /\/private\/sales/);
+  assertAllRefsResolve(result);
+});
+
 test("does not expose the obsolete manual table operation", () => {
   assert.equal(
     OPERATION_DEFS.some((candidate) => candidate.id === "source-manual"),

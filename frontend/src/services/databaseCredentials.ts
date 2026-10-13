@@ -50,5 +50,6 @@ export function buildDatabaseCredentials(
 /** Whether a validated adapter has the fields needed to try a live connection. */
 export function isDatabaseConfigured(credentials: DatabaseCredentials | null): boolean {
   if (!credentials || !ENABLED_DBT_ADAPTER_IDS.has(credentials.type)) return false;
+  if (credentials.type === "duckdb") return Boolean(credentials.path);
   return Boolean(credentials.host && credentials.database && credentials.user);
 }

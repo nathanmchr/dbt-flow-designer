@@ -38,8 +38,11 @@ class DbtExecutor:
 
     def configure_source(self, adapter_type: str, credentials: dict[str, Any]) -> None:
         self.close()
+        if adapter_type.strip().lower() == "duckdb":
+            self._configure_duckdb_source(credentials)
+            return
         if adapter_type.strip().lower() != "postgres":
-            raise ValueError("Live dbt testing supports PostgreSQL only; other adapters are not validated yet")
+            raise ValueError("Live dbt testing supports PostgreSQL and DuckDB; other adapters are not validated yet")
         missing = [field for field in ("host", "database", "user") if not credentials.get(field)]
         if missing:
             raise ValueError(f"Missing PostgreSQL credential(s): {', '.join(missing)}")
@@ -73,6 +76,30 @@ class DbtExecutor:
 """
         (self.project_path / "profiles.yml").write_text(profile, encoding="utf-8")
 
+    def _configure_duckdb_source(self, credentials: dict[str, Any]) -> None:
+        from connectors.duckdb_connector import DuckDBConnector
+
+        path = DuckDBConnector.source_path(credentials)
+        self._source_environment = {
+            "DBT_FLOW_DUCKDB_PATH": str(path),
+            "DBT_FLOW_SOURCE_SCHEMA": str(credentials.get("schema") or "main"),
+            "DBT_SEND_ANONYMOUS_USAGE_STATS": "false",
+        }
+        profile = {
+            self.PROFILE_NAME: {
+                "target": "preview",
+                "outputs": {"preview": {
+                    "type": "duckdb",
+                    "path": "{{ env_var('DBT_FLOW_DUCKDB_PATH') }}",
+                    "schema": "{{ env_var('DBT_FLOW_SOURCE_SCHEMA') }}",
+                    "threads": 1,
+                    "config_options": dict(DuckDBConnector.PREVIEW_CONFIG),
+                }},
+            }
+        }
+        (self.project_path / "profiles.yml").write_text(
+            yaml.safe_dump(profile, sort_keys=False), encoding="utf-8"
+        )
 
     def deploy_model_files(self, files: list[dict[str, str]], model_name: str) -> None:
         """Preserve exported SQL/sources; inline upstream models only in the preview."""

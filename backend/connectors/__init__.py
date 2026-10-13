@@ -19,6 +19,7 @@ def _create_duckdb_connector(credentials: dict) -> BaseConnector:
 # Connector registry - factories can load their engine dependencies lazily.
 CONNECTORS: dict[str, Callable[[dict], BaseConnector]] = {
     "postgres": PostgresConnector,
+    "duckdb": _create_duckdb_connector,
     # Add more as needed:
     # "snowflake": SnowflakeConnector,
     # "bigquery": BigQueryConnector,

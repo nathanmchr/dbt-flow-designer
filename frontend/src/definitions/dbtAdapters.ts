@@ -129,8 +129,10 @@ export const DBT_ADAPTERS: DBTAdapterDefinition[] = [
   {
     id: "duckdb",
     label: "DuckDB",
+    defaultSchema: "main",
     params: [
       { name: "path", label: "File Path", type: "string", required: true },
+      { name: "schema", label: "Schema", type: "string" },
     ],
   },
   {
@@ -145,6 +147,7 @@ export const DBT_ADAPTERS: DBTAdapterDefinition[] = [
 /** Adapters currently available in the Database node UI. */
 export const ENABLED_DBT_ADAPTER_IDS: ReadonlySet<string> = new Set([
   "postgres",
+  "duckdb",
 ]);
 
 export function getDefaultDatabaseSchema(adapterType: string): string {

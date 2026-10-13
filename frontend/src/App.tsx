@@ -747,7 +747,7 @@ function App() {
 
     if (!ENABLED_DBT_ADAPTER_IDS.has(sourceCredentials.type)) {
       setTestError(
-        "Live dbt testing supports PostgreSQL only. This adapter has not been validated yet."
+        "Live dbt testing supports PostgreSQL and DuckDB. This adapter has not been validated yet."
       );
       setIsResultsPanelExpanded(true);
       return;

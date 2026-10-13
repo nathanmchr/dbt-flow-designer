@@ -1,19 +1,23 @@
 # Audit des modèles dbt générés
 
-## Publication Git par lots — 13 octobre 2026
+## Prise en charge multi-SGBD — 13 octobre 2026
 
-Publication sur `dev`, avec deux jalons PostgreSQL puis DuckDB fusionnés dans `main`. Aucun historique existant réécrit, aucun push demandé.
+Périmètre : plateformes SQL/dbt, couvrant à la fois les bases applicatives et la data/BI. « 95–98 % » reste un objectif produit à mesurer sur les utilisateurs cibles, pas une part de marché démontrée. Premier lot : PostgreSQL préservé et DuckDB validé de bout en bout ; autres moteurs planifiés sans activation prématurée.
 
-- [ ] Sauvegarder les références et sources actuelles ; préserver les branches et stashes existants.
-- [ ] Exclure les fichiers générés et secrets ; retirer les caches Python de l’index sans supprimer les fichiers locaux.
-- [ ] Préparer et vérifier un jalon PostgreSQL complet, avec DuckDB live encore désactivé.
-  - Vérifier les fins de fichiers des tests avant publication ; retirer la ligne vide finale détectée par le contrôle de diff.
-- [ ] Créer huit commits cohérents sur `dev`, puis le premier merge non fast-forward vers `main`.
-- [ ] Créer deux commits DuckDB sur `dev`, puis vérifier et réaliser le second merge vers `main`.
-- [ ] Vérifier les deux jalons, l’égalité finale des arbres `main`/`dev` et l’absence de changements source perdus.
-- [ ] Retirer uniquement les workspaces temporaires de cette tâche et documenter le résultat.
-
-Workspace de vérification : `/private/tmp/dbt-flow-git-validate.0xa1tg`, propriétaire : cette tâche ; dépendances partagées, sans copie des données locales. Sauvegarde locale : `.local/git-safety/20261013T132242/`.
+- [x] Documenter les vagues de couverture et les critères de validation d’un moteur.
+- [x] Généraliser le parcours natif par capacités, conserver PostgreSQL et sécuriser le connecteur DuckDB en lecture seule.
+- [x] Compiler l’aperçu dbt DuckDB sans matérialisation et déclarer les dépendances nécessaires.
+- [x] Activer DuckDB dans Database, le statut live et le sélecteur de tables avec son schéma `main`.
+  - Défaut révélé en UI : Save remplaçait tous les paramètres par les seuls champs du formulaire, perdant les ports dynamiques. Préserver les paramètres non édités lors de la sauvegarde et rejouer le changement de moteur avec deux sorties.
+- [x] Tester les catalogues, limites, pagination, statistiques et refus d’écriture sur une vraie base DuckDB.
+  - Corriger l’échappement SQL des guillemets dans la fixture de test (identifiants à guillemets doublés), puis relancer tous les cas ; la compilation dbt native a déjà réussi.
+  - Couvrir aussi les agrégations et SQL personnalisé générés ; la seconde variante révèle des noms intermédiaires identiques pour une chaîne valide filtre/tri/custom SQL. Suffixer les noms intermédiaires en collision avant la résolution des références, avec un test de régression.
+- [x] Manipuler l’interface, exporter le ZIP et comparer sa construction dbt aux données attendues ; vérifier la non-régression PostgreSQL.
+  - Le port 5173 héberge une autre application : ne pas l’arrêter ni la modifier ; démarrer notre Vite sur 5174 et vérifier le titre avant toute interaction.
+  - Autoriser une origine frontend explicite via `DBT_FLOW_FRONTEND_ORIGIN`, sans ouvrir CORS à toutes les origines, pour tester sur le port alternatif.
+  - Dans la requête de comparaison, qualifier complètement `validation.validation.fct_qa_duckdb_join` : le nom du fichier DuckDB et celui du schéma sont identiques, donc deux segments sont ambigus.
+- [x] Exécuter tests, lint, build et consigner les preuves et limites.
+- Résultat : connecteur DuckDB activé de bout en bout ; 34 tests frontend et 34 tests backend réussis, plus 4 tests PostgreSQL opt-in réussis séparément. Aperçus générés avec jointure/filtre/tri, agrégations et SQL personnalisé validés sur DuckDB ; refus d’écriture et empreintes sources inchangées. ZIP téléchargé en UI construit sans réécriture SQL : 3 succès, zéro erreur ; comparaison exhaustive 1 000/1 000 lignes, aucun écart. Diagnostics TypeScript, lint, build, dépendances et diff-check réussis ; avertissements préexistants de taille de bundle et baseline-browser-mapping conservés. Preuves sous `output/playwright/multi-database-2026-10-13/`. Base de test `.local/duckdb/dbt_flow_test.duckdb` conservée volontairement. Frontend de cette tâche sur 5174 et backend sur 8765 ; application existante sur 5173 laissée intacte.
 
 ## Aperçu dbt natif en lecture seule
 
