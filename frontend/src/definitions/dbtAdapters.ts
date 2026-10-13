@@ -14,6 +14,7 @@ export interface DBTAdapterParam {
   type: "string" | "number" | "password" | "boolean" | "select";
   required?: boolean;
   options?: string[];
+  defaultValue?: string;
 }
 
 export interface DBTAdapterDefinition {
@@ -48,6 +49,23 @@ export const DBT_ADAPTERS: DBTAdapterDefinition[] = [
         type: "select",
         options: ["disable", "require", "verify-ca", "verify-full"],
       },
+    ],
+  },
+  {
+    id: "sqlserver",
+    label: "SQL Server",
+    defaultPort: 1433,
+    defaultSchema: "dbo",
+    params: [
+      { name: "host", label: "Host", type: "string", required: true },
+      { name: "port", label: "Port", type: "number" },
+      { name: "user", label: "User", type: "string", required: true },
+      { name: "password", label: "Password", type: "password", required: true },
+      { name: "database", label: "Database Name", type: "string", required: true },
+      { name: "schema", label: "Schema", type: "string", required: true },
+      { name: "driver", label: "ODBC Driver", type: "select", options: ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"], defaultValue: "ODBC Driver 18 for SQL Server" },
+      { name: "encrypt", label: "Encrypt Connection", type: "select", options: ["true", "false"], defaultValue: "true" },
+      { name: "trust_cert", label: "Trust Server Certificate", type: "select", options: ["false", "true"], defaultValue: "false" },
     ],
   },
   {
@@ -148,6 +166,7 @@ export const DBT_ADAPTERS: DBTAdapterDefinition[] = [
 export const ENABLED_DBT_ADAPTER_IDS: ReadonlySet<string> = new Set([
   "postgres",
   "duckdb",
+  "sqlserver",
 ]);
 
 export function getDefaultDatabaseSchema(adapterType: string): string {

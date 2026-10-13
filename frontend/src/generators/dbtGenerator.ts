@@ -17,6 +17,7 @@ import { generateCombinedSQL } from "./cteHelpers.ts";
 import { buildFilterSQL, type FilterNode } from "./filterSql.ts";
 import { quoteColumn, quoteIdentifier } from "./sqlIdentifiers.ts";
 import { getDefaultDatabaseSchema } from "../definitions/dbtAdapters.ts";
+import { getFlowSqlDialect, type SqlDialect } from "./sqlDialect.ts";
 
 // =============================================================================
 // Types
@@ -348,6 +349,7 @@ export function generateDbtModel(
     }
     if (errors.length > 0) return { files, errors };
 
+    const dialect = getFlowSqlDialect(relevantNodes);
     const columnTypes = buildColumnTypeRegistry(relevantNodes);
     const sourceConfiguration = buildSourceConfiguration(
       relevantNodes,
@@ -369,7 +371,7 @@ export function generateDbtModel(
 
     // Generate SQL files
     let schemaNodes = classifiedNodes;
-    if (optimizePipeline) {
+    if (optimizePipeline && dialect !== "sqlserver") {
       const optimizer = new PipelineOptimizer(dependencyGraph);
       const optimizedGroups = optimizer.optimizePipeline(classifiedNodes);
       const generatedModelNames = new Map<string, string>();
@@ -423,7 +425,9 @@ export function generateDbtModel(
           cn,
           classifiedNodes,
           columnTypes,
-          sourceConfiguration.references
+          sourceConfiguration.references,
+          new Map(),
+          dialect
         );
         files.push({ path: cn.filePath, content: sql });
       });
@@ -902,7 +906,8 @@ function generateSQLForNode(
   allClassified: ClassifiedNode[],
   columnTypes: Map<string, string>,
   sourceReferences: Map<string, SourceReference>,
-  generatedModelNames: Map<string, string> = new Map()
+  generatedModelNames: Map<string, string> = new Map(),
+  dialect: SqlDialect = "default"
 ): string {
   const { node, layer, modelName, dependencies } = classified;
   const opId = node.data.operation.id;
@@ -932,7 +937,7 @@ function generateSQLForNode(
     case "filter":
       return (
         sql +
-        generateFilterSQL(parentModels, params, classified.columns, columnTypes)
+        generateFilterSQL(parentModels, params, classified.columns, columnTypes, dialect)
       );
 
     case "join":
@@ -940,19 +945,20 @@ function generateSQLForNode(
 
     case "aggregate":
     case "group-by":
-      return sql + generateAggregateSQL(parentModels, params);
+      return sql + generateAggregateSQL(parentModels, params, dialect);
 
     case "union":
       return sql + generateUnionSQL(parentModels);
 
     case "sort":
-      return sql + generateSortSQL(parentModels, params);
+      return sql + generateSortSQL(parentModels, params, dialect);
 
     case "custom-sql":
       return sql + generateCustomSQL(parentModels, params);
 
     case "dbt-model":
-      return sql + generateOutputSQL(parentModels, classified.columns);
+      return sql + generateOutputSQL(parentModels, classified.columns,
+        dialect === "sqlserver" ? findOutputSort(classified, allClassified) : undefined);
 
     default:
       return (
@@ -1042,7 +1048,8 @@ function generateFilterSQL(
   parentModels: string[],
   params: Record<string, unknown>,
   columns: string[],
-  columnTypes: Map<string, string>
+  columnTypes: Map<string, string>,
+  dialect: SqlDialect = "default"
 ): string {
   const fromModel = parentModels[0] || "upstream";
 
@@ -1061,7 +1068,8 @@ function generateFilterSQL(
   if (params.condition) {
     const whereClause = buildFilterSQL(
       params.condition as FilterNode,
-      columnTypes
+      columnTypes,
+      dialect
     );
     if (whereClause) {
       sql += `\nWHERE ${whereClause}`;
@@ -1133,7 +1141,8 @@ function generateJoinSQL(
  */
 function generateAggregateSQL(
   parentModels: string[],
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  dialect: SqlDialect = "default"
 ): string {
   const fromModel = parentModels[0] || "upstream";
 
@@ -1175,6 +1184,8 @@ function generateAggregateSQL(
         const funcCall =
           agg.function === "COUNT(DISTINCT)"
             ? `COUNT(DISTINCT ${quoteColumn(agg.column)})`
+            : dialect === "sqlserver" && agg.function === "AVG"
+            ? `AVG(CAST(${quoteColumn(agg.column)} AS FLOAT))`
             : `${agg.function}(${quoteColumn(agg.column)})`;
 
         const alias =
@@ -1224,12 +1235,13 @@ function generateUnionSQL(parentModels: string[]): string {
 /** Generates a deterministic PostgreSQL/DuckDB ORDER BY step. */
 function generateSortSQL(
   parentModels: string[],
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
+  dialect: SqlDialect = "default"
 ): string {
   const fromModel = parentModels[0] || "upstream";
   const column = String(params.column || "").trim();
   const direction = params.direction === "DESC" ? "DESC" : "ASC";
-  return `SELECT *\nFROM {{ ref('${fromModel}') }}\nORDER BY ${quoteIdentifier(column)} ${direction}`;
+  return `SELECT *\nFROM {{ ref('${fromModel}') }}\nORDER BY ${quoteIdentifier(column)} ${direction}${dialect === "sqlserver" ? "\nOFFSET 0 ROWS" : ""}`;
 }
 
 /** Resolves the explicit parent placeholder used by Custom SQL nodes. */
@@ -1248,7 +1260,22 @@ function generateCustomSQL(
 /**
  * Generates SQL for the final output model.
  */
-function generateOutputSQL(parentModels: string[], columns: string[]): string {
+function findOutputSort(output: ClassifiedNode, nodes: ClassifiedNode[]): Record<string, unknown> | undefined {
+  let current: ClassifiedNode | undefined = output;
+  const visited = new Set<string>();
+  while (current && !visited.has(current.node.id)) {
+    visited.add(current.node.id);
+    if (current.node.data.operation.id === "sort") {
+      const params = current.node.data.params;
+      return output.columns.includes(String(params?.column)) || output.columns.includes("*") ? params : undefined;
+    }
+    if (!["dbt-model", "filter", "select"].includes(current.node.data.operation.id)) return undefined;
+    current = nodes.find((candidate) => candidate.node.id === current!.dependencies[0]);
+  }
+  return undefined;
+}
+
+function generateOutputSQL(parentModels: string[], columns: string[], sort?: Record<string, unknown>): string {
   const fromModel = parentModels[0] || "upstream";
 
   let sql = "SELECT\n";
@@ -1262,6 +1289,10 @@ function generateOutputSQL(parentModels: string[], columns: string[]): string {
   }
 
   sql += `\nFROM {{ ref('${fromModel}') }}`;
+
+  if (sort?.column) {
+    sql += `\nORDER BY ${quoteIdentifier(String(sort.column))} ${sort.direction === "DESC" ? "DESC" : "ASC"}\nOFFSET 0 ROWS`;
+  }
 
   return sql;
 }

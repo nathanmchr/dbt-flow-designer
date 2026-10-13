@@ -80,5 +80,20 @@ test("does not treat incomplete or unvalidated adapters as live-ready", () => {
   assert.equal(isDatabaseConfigured({ type: "duckdb" }), false);
   assert.equal(isDatabaseConfigured({ type: "postgres", host: "localhost" }), false);
   assert.equal(isDatabaseConfigured({ type: "mysql", host: "localhost", database: "db", user: "reader" }), false);
-  assert.deepEqual([...ENABLED_DBT_ADAPTER_IDS], ["postgres", "duckdb"]);
+  assert.deepEqual([...ENABLED_DBT_ADAPTER_IDS], ["postgres", "duckdb", "sqlserver"]);
+});
+
+test("SQL Server uses secure defaults, dbo and preserves password whitespace", () => {
+  const credentials = buildDatabaseCredentials({ type: "sqlserver", host: "db.internal", database: "warehouse", user: "reader", password: " secret; } " });
+  assert.equal(credentials?.port, 1433);
+  assert.equal(credentials?.driver, "ODBC Driver 18 for SQL Server");
+  assert.equal(credentials?.encrypt, true);
+  assert.equal(credentials?.trust_cert, false);
+  assert.equal(credentials?.password, " secret; } ");
+  assert.equal(getDefaultDatabaseSchema("sqlserver"), "dbo");
+  assert.equal(isDatabaseConfigured(credentials), true);
+  assert.equal(isDatabaseConfigured({ ...credentials!, password: undefined }), false);
+  const local = buildDatabaseCredentials({ type: "sqlserver", encrypt: "false", trust_cert: "true" });
+  assert.equal(local?.encrypt, false);
+  assert.equal(local?.trust_cert, true);
 });

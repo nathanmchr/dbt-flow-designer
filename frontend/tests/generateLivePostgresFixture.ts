@@ -39,6 +39,10 @@ const nodes = [
     adapter: process.argv.includes("--duckdb") ? {
       type: "duckdb",
       path: "fixture.duckdb",
+    } : process.argv.includes("--sqlserver") ? {
+      type: "sqlserver",
+      database: process.env.DBT_FLOW_SQLSERVER_DATABASE || "warehouse",
+      schema: process.env.DBT_FLOW_SQLSERVER_SCHEMA || "dbo",
     } : {
       type: "postgres",
       host: "127.0.0.1",

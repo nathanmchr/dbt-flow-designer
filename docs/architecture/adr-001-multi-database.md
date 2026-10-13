@@ -21,6 +21,15 @@ Conserver les interfaces et le registre des connecteurs existants. Sélectionner
 
 Le premier lot active DuckDB sur des fichiers locaux existants, en lecture seule : aucun fichier n’est créé par une simple connexion, aucune extension n’est chargée et aucun modèle source n’est matérialisé par le bouton Test. L’export reste un projet dbt ordinaire qui peut être construit séparément avec un profil et une destination adaptés.
 
+Le lot SQL Server implémente maintenant le parcours natif avec SQL authentication,
+TLS, catalogue et dbt-sqlserver 1.10.1. Une instance dédiée SQL Server 2022 CU16
+Developer a permis de vérifier les aperçus natifs, les droits du reader, les builds
+du SQL exporté et l’intégrité des sources. Cette validation locale ne certifie pas
+les autres versions/Azure/Entra ni le déploiement émulé macOS pour la production.
+Les tests serveur et build exporté restent opt-in ; voir le
+[guide SQL Server](../sqlserver.md). SQL Server exige un compte SELECT-only contrôlé,
+car il ne dispose pas des transactions READ ONLY de PostgreSQL.
+
 Un modèle s’exécute sur un moteur cible unique. Ajouter plusieurs connecteurs ne permet pas automatiquement une jointure entre PostgreSQL et Snowflake : ce besoin demanderait une ingestion préalable ou un moteur de fédération tel que Trino.
 
 ## Alternatives et compromis

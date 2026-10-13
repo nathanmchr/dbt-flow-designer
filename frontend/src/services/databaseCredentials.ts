@@ -1,5 +1,5 @@
 import type { DatabaseCredentials } from "./api";
-import { ENABLED_DBT_ADAPTER_IDS } from "../definitions/dbtAdapters.ts";
+import { DBT_ADAPTERS, ENABLED_DBT_ADAPTER_IDS } from "../definitions/dbtAdapters.ts";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -31,12 +31,12 @@ export function buildDatabaseCredentials(
   return {
     type,
     host: optionalString(config.host),
-    port: optionalPort(config.port) ?? (type === "postgres" ? 5432 : undefined),
+    port: optionalPort(config.port) ?? DBT_ADAPTERS.find((adapter) => adapter.id === type)?.defaultPort,
     database: optionalString(config.database) ?? optionalString(config.dbname),
     schema_name:
       optionalString(config.schema_name) ?? optionalString(config.schema),
     user: optionalString(config.user),
-    password: optionalString(config.password),
+    password: typeof config.password === "string" && config.password.length > 0 ? config.password : undefined,
     sslmode: optionalString(config.sslmode),
     path: optionalString(config.path),
     account: optionalString(config.account),
@@ -44,6 +44,11 @@ export function buildDatabaseCredentials(
     project: optionalString(config.project),
     dataset: optionalString(config.dataset),
     keyfile: optionalString(config.keyfile),
+    ...(type === "sqlserver" ? {
+      driver: optionalString(config.driver) ?? "ODBC Driver 18 for SQL Server",
+      encrypt: config.encrypt === undefined || config.encrypt === "" ? true : config.encrypt === true || config.encrypt === "true",
+      trust_cert: config.trust_cert === true || config.trust_cert === "true",
+    } : {}),
   };
 }
 
@@ -51,5 +56,6 @@ export function buildDatabaseCredentials(
 export function isDatabaseConfigured(credentials: DatabaseCredentials | null): boolean {
   if (!credentials || !ENABLED_DBT_ADAPTER_IDS.has(credentials.type)) return false;
   if (credentials.type === "duckdb") return Boolean(credentials.path);
+  if (credentials.type === "sqlserver" && !credentials.password) return false;
   return Boolean(credentials.host && credentials.database && credentials.user);
 }

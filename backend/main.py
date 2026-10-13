@@ -37,6 +37,9 @@ class DatabaseCredentials(BaseModel):
     password: str | None = None
     sslmode: str | None = None
     path: str | None = None  # Existing DuckDB file on the backend host
+    driver: Literal["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"] | None = None
+    encrypt: bool | None = None
+    trust_cert: bool | None = None
     # For cloud databases
     account: str | None = None
     warehouse: str | None = None

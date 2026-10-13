@@ -1,6 +1,7 @@
 /** Shared, deterministic SQL generation for visual filter trees. */
 
 import { quoteIdentifier } from "./sqlIdentifiers.ts";
+import type { SqlDialect } from "./sqlDialect.ts";
 
 export interface FilterNode {
   type: "group" | "condition";
@@ -31,6 +32,9 @@ const ALLOWED_OPERATORS = new Set([
 
 const NUMERIC_TYPES = new Set([
   "SMALLINT",
+  "TINYINT",
+  "MONEY",
+  "SMALLMONEY",
   "INTEGER",
   "INT",
   "BIGINT",
@@ -42,8 +46,8 @@ const NUMERIC_TYPES = new Set([
   "DOUBLE PRECISION",
 ]);
 
-function quoteString(value: unknown): string {
-  return `'${String(value).replace(/'/g, "''")}'`;
+function quoteString(value: unknown, dialect: SqlDialect = "default"): string {
+  return `${dialect === "sqlserver" ? "N" : ""}'${String(value).replace(/'/g, "''")}'`;
 }
 
 function isNumericLiteral(value: string): boolean {
@@ -55,9 +59,10 @@ function isNumericLiteral(value: string): boolean {
 function formatScalarValue(
   column: string,
   value: unknown,
-  columnTypes: Map<string, string>
+  columnTypes: Map<string, string>,
+  dialect: SqlDialect
 ): string {
-  const type = columnTypes.get(column)?.toUpperCase();
+  const type = columnTypes.get(column)?.toUpperCase().replace(/\(.*/, "");
 
   if (NUMERIC_TYPES.has(type || "")) {
     if (typeof value === "number" && Number.isFinite(value)) {
@@ -66,12 +71,12 @@ function formatScalarValue(
     if (typeof value === "string" && isNumericLiteral(value)) {
       return value.trim();
     }
-    return quoteString(value);
+    return quoteString(value, dialect);
   }
 
-  if (type === "BOOLEAN" || type === "BOOL") {
+  if (type === "BOOLEAN" || type === "BOOL" || type === "BIT") {
     if (value === true || value === "true" || value === "1" || value === 1) {
-      return "TRUE";
+      return dialect === "sqlserver" ? "1" : "TRUE";
     }
     if (
       value === false ||
@@ -79,19 +84,19 @@ function formatScalarValue(
       value === "0" ||
       value === 0
     ) {
-      return "FALSE";
+      return dialect === "sqlserver" ? "0" : "FALSE";
     }
-    return quoteString(value);
+    return quoteString(value, dialect);
   }
 
   if (typeof value === "number" && Number.isFinite(value)) {
     return String(value);
   }
   if (typeof value === "boolean") {
-    return value ? "TRUE" : "FALSE";
+    return dialect === "sqlserver" ? (value ? "1" : "0") : (value ? "TRUE" : "FALSE");
   }
 
-  return quoteString(value ?? "");
+  return quoteString(value ?? "", dialect);
 }
 
 function parseListValue(value: unknown): unknown[] {
@@ -107,7 +112,8 @@ function parseListValue(value: unknown): unknown[] {
 /** Build a WHERE expression accepted by PostgreSQL and DuckDB. */
 export function buildFilterSQL(
   node: FilterNode | null | undefined,
-  columnTypes: Map<string, string>
+  columnTypes: Map<string, string>,
+  dialect: SqlDialect = "default"
 ): string {
   if (!node) return "";
 
@@ -121,6 +127,7 @@ export function buildFilterSQL(
     }
 
     if (operator === "IS NaN" || operator === "IS NOT NaN") {
+      if (dialect === "sqlserver") throw new Error("SQL Server does not support IEEE NaN filter operators; use IS NULL if appropriate");
       const comparison = operator === "IS NaN" ? "=" : "<>";
       return `LOWER(CAST(${quoteIdentifier(column)} AS VARCHAR)) ${comparison} 'nan'`;
     }
@@ -129,7 +136,7 @@ export function buildFilterSQL(
       const values = parseListValue(node.value);
       if (values.length === 0) return "";
       const list = values
-        .map((value) => formatScalarValue(column, value, columnTypes))
+        .map((value) => formatScalarValue(column, value, columnTypes, dialect))
         .join(", ");
       return `${quoteIdentifier(column)} ${operator} (${list})`;
     }
@@ -137,14 +144,15 @@ export function buildFilterSQL(
     return `${quoteIdentifier(column)} ${operator} ${formatScalarValue(
       column,
       node.value,
-      columnTypes
+      columnTypes,
+      dialect
     )}`;
   }
 
   const children = (node.children || [])
     .map((child, index) => ({
       index,
-      sql: buildFilterSQL(child, columnTypes),
+      sql: buildFilterSQL(child, columnTypes, dialect),
     }))
     .filter((child) => child.sql);
 

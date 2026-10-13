@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+from jinja2 import Environment, nodes as jinja_nodes
 
 
 class DbtExecutor:
@@ -24,6 +25,7 @@ class DbtExecutor:
         self._source_environment: dict[str, str] = {}
         self._sensitive_values: set[str] = set()
         self._execution_lock = threading.Lock()
+        self._sqlserver_credentials: dict[str, Any] | None = None
         self._ensure_project_structure()
 
     @contextmanager
@@ -41,8 +43,11 @@ class DbtExecutor:
         if adapter_type.strip().lower() == "duckdb":
             self._configure_duckdb_source(credentials)
             return
+        if adapter_type.strip().lower() == "sqlserver":
+            self._configure_sqlserver_source(credentials)
+            return
         if adapter_type.strip().lower() != "postgres":
-            raise ValueError("Live dbt testing supports PostgreSQL and DuckDB; other adapters are not validated yet")
+            raise ValueError("Live dbt testing supports PostgreSQL, DuckDB and SQL Server; other adapters are not validated yet")
         missing = [field for field in ("host", "database", "user") if not credentials.get(field)]
         if missing:
             raise ValueError(f"Missing PostgreSQL credential(s): {', '.join(missing)}")
@@ -101,6 +106,37 @@ class DbtExecutor:
             yaml.safe_dump(profile, sort_keys=False), encoding="utf-8"
         )
 
+    def _configure_sqlserver_source(self, credentials: dict[str, Any]) -> None:
+        from connectors.sqlserver import SQLServerConnector
+
+        options = SQLServerConnector(credentials).connection_options()
+        self._sqlserver_credentials = dict(credentials)
+        self._source_environment = {
+            "DBT_FLOW_SQLSERVER_HOST": str(credentials["host"]),
+            "DBT_FLOW_SQLSERVER_DATABASE": str(credentials["database"]),
+            "DBT_FLOW_SQLSERVER_USER": str(credentials["user"]),
+            "DBT_ENV_SECRET_SQLSERVER_PASSWORD": str(credentials["password"]),
+            "DBT_FLOW_SOURCE_SCHEMA": str(credentials.get("schema") or "dbo"),
+            "DBT_SEND_ANONYMOUS_USAGE_STATS": "false",
+        }
+        self._sensitive_values = {str(credentials["password"])}
+        profile = {self.PROFILE_NAME: {
+            "target": "preview", "outputs": {"preview": {
+                "type": "sqlserver", "driver": options["driver"],
+                "server": "{{ env_var('DBT_FLOW_SQLSERVER_HOST') }}",
+                "database": "{{ env_var('DBT_FLOW_SQLSERVER_DATABASE') }}",
+                "user": "{{ env_var('DBT_FLOW_SQLSERVER_USER') }}",
+                "password": "{{ env_var('DBT_ENV_SECRET_SQLSERVER_PASSWORD') }}",
+                "schema": "{{ env_var('DBT_FLOW_SOURCE_SCHEMA') }}",
+                "port": options["port"], "encrypt": options["encrypt"],
+                "trust_cert": options["trust_cert"], "authentication": "sql",
+                "login_timeout": 10, "query_timeout": 30, "threads": 1,
+            }},
+        }}
+        (self.project_path / "profiles.yml").write_text(
+            yaml.safe_dump(profile, sort_keys=False), encoding="utf-8"
+        )
+
     def deploy_model_files(self, files: list[dict[str, str]], model_name: str) -> None:
         """Preserve exported SQL/sources; inline upstream models only in the preview."""
         if not self.MODEL_NAME_PATTERN.fullmatch(model_name):
@@ -115,6 +151,8 @@ class DbtExecutor:
                 raise ValueError(f"Duplicate generated file path: {file_info['path']}")
             seen.add(file_path)
             content = file_info["content"]
+            if self._sqlserver_credentials is not None:
+                self._validate_sqlserver_template(content)
             if len(content.encode("utf-8")) > 1_000_000:
                 raise ValueError(f"Generated file is too large: {file_info['path']}")
             if file_path.name == "dbt_project.yml":
@@ -137,6 +175,34 @@ class DbtExecutor:
         for file_path, content in prepared:
             file_path.parent.mkdir(parents=True, exist_ok=True)
             file_path.write_text(content, encoding="utf-8")
+
+    @staticmethod
+    def _validate_sqlserver_template(content: str) -> None:
+        """Generated refs/config are allowed; preview templates must not execute macros."""
+        template = Environment().parse(content)
+        allowed_nodes = (jinja_nodes.Template, jinja_nodes.Output, jinja_nodes.TemplateData,
+                         jinja_nodes.Call, jinja_nodes.Name, jinja_nodes.Const, jinja_nodes.Keyword,
+                         jinja_nodes.Dict, jinja_nodes.Pair, jinja_nodes.List, jinja_nodes.Tuple)
+        def is_literal(value) -> bool:
+            if isinstance(value, jinja_nodes.Const):
+                return True
+            if isinstance(value, (jinja_nodes.List, jinja_nodes.Tuple)):
+                return all(is_literal(item) for item in value.items)
+            if isinstance(value, jinja_nodes.Dict):
+                return all(is_literal(item.key) and is_literal(item.value) for item in value.items)
+            return False
+        for node in template.find_all(jinja_nodes.Node):
+            if not isinstance(node, allowed_nodes):
+                raise ValueError("SQL Server preview templates only support generated ref/source/config calls, not executable macros")
+            if isinstance(node, jinja_nodes.Call):
+                if not isinstance(node.node, jinja_nodes.Name) or node.node.name not in {"ref", "source", "config"}:
+                    raise ValueError("SQL Server preview templates cannot execute macros")
+                if node.dyn_args or node.dyn_kwargs:
+                    raise ValueError("SQL Server preview templates require literal arguments")
+                if not all(is_literal(argument) for argument in node.args) or not all(is_literal(keyword.value) for keyword in node.kwargs):
+                    raise ValueError("SQL Server preview templates require literal arguments")
+            if isinstance(node, jinja_nodes.Name) and node.name not in {"ref", "source", "config"}:
+                raise ValueError("SQL Server preview templates require literal arguments")
 
     def _resolve_project_file(self, relative_path: str) -> Path:
         candidate = Path(relative_path)
@@ -173,6 +239,11 @@ class DbtExecutor:
             "--no-partial-parse", "--no-use-colors",
         ]
         try:
+            if self._sqlserver_credentials is not None:
+                # Compilation macros can query the database: verify privileges before dbt starts.
+                from connectors.sqlserver import SQLServerConnector
+
+                SQLServerConnector(self._sqlserver_credentials).test_connection()
             completed = subprocess.run(
                 command, capture_output=True, text=True,
                 cwd=str(self.project_path), timeout=120,
@@ -201,5 +272,6 @@ class DbtExecutor:
         return value
 
     def close(self) -> None:
+        self._sqlserver_credentials = None
         self._source_environment.clear()
         self._sensitive_values.clear()

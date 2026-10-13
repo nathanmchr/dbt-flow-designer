@@ -100,8 +100,10 @@ that key separately if encrypted projects must survive a reinstall or move to an
 computer, and never commit or share it. Until a user master password is added, anyone
 who obtains both the application key and a project JSON can decrypt its passwords.
 
-Live dbt testing supports PostgreSQL and local DuckDB. Other adapter definitions
-are retained but hidden from the Database dropdown until their full path is validated.
+Live dbt testing supports PostgreSQL, local DuckDB and the SQL Server connector.
+SQL Server has been verified on a local SQL Server 2022 Developer fixture, including
+native previews and dbt builds of exported models. Other adapter definitions are
+retained but hidden from the Database dropdown.
 See [the multi-database roadmap](docs/architecture/adr-001-multi-database.md) for
 the enterprise SQL and data/BI coverage plan and its activation criteria.
 
@@ -136,6 +138,9 @@ separately; listed future engines are not claimed as already functional.
 
 ## Verification
 
+SQL Server configuration, driver prerequisites and opt-in live/export tests are
+documented in [the SQL Server connector guide](docs/sqlserver.md).
+
 ```bash
 npm --prefix frontend test
 npm --prefix frontend run build
@@ -157,9 +162,12 @@ RUN_LIVE_POSTGRES_TEST=1 PYTHONPATH=backend \
 
 - PostgreSQL sessions default to read-only mode.
 - DuckDB connections require existing local files and disable writes and external file access.
+- SQL Server requires SQL authentication with a SELECT-only account. Effective server,
+  database, schema and object write/DDL/EXECUTE permissions are rejected before testing.
 - Native preview statements have a 30-second timeout and return at most 250 rows per page.
-- dbt compilation has a 120-second timeout and uses read-only connection defaults.
+- dbt compilation has a 120-second timeout. SQL Server checks account permissions and
+  refuses executable Jinja macros in previews; it has no PostgreSQL-style READ ONLY transaction.
 - Generated file paths are constrained to the preview dbt project.
-- SQL identifiers are quoted for PostgreSQL/DuckDB compatibility.
+- SQL identifiers are quoted; SQL Server sessions enable QUOTED_IDENTIFIER for ANSI quotes.
 - Custom SQL remains intentionally user-authored SQL; use a database role restricted
   to the schemas and tables needed for testing.

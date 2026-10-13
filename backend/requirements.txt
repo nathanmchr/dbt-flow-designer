@@ -9,6 +9,9 @@ dbt-core==1.10.15            # Compile the same models as the exported dbt proje
 dbt-postgres==1.9.1          # Native PostgreSQL compilation
 duckdb==1.1.3               # Native, read-only local DuckDB previews
 dbt-duckdb==1.10.0          # Compile exported projects on DuckDB
+pyodbc==5.3.0               # SQL Server (Microsoft ODBC Driver installed separately)
+dbt-sqlserver==1.10.1       # Same dbt-core 1.10 generation as existing adapters
+sqlglot==27.29.0            # T-SQL SELECT validation and CTE-safe preview wrapping
 sqlparse==0.5.4             # Single SELECT statement validation
 sqlalchemy==2.0.36           # ORM (optional)
 pandas==2.2.3                # Data manipulation

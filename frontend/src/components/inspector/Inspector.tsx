@@ -1517,9 +1517,16 @@ function Inspector({
                                 >
                               )?.type as string) || ""
                             }
-                            onChange={(e) =>
-                              handleChange(param, { type: e.target.value })
-                            }
+                            onChange={(e) => {
+                              const adapter = DBT_ADAPTERS.find((candidate) => candidate.id === e.target.value);
+                              const defaults = adapter?.id === "sqlserver" ? {
+                                port: adapter.defaultPort,
+                                schema: adapter.defaultSchema,
+                                ...Object.fromEntries(adapter.params.filter((field) => field.defaultValue !== undefined)
+                                  .map((field) => [field.name, field.defaultValue])),
+                              } : {};
+                              handleChange(param, { type: e.target.value, ...defaults });
+                            }}
                           >
                             <option value="">Select a database type...</option>
                             {DBT_ADAPTERS.filter((adapter) =>
@@ -1551,6 +1558,12 @@ function Inspector({
                                     schema defaults to main. External files and extensions are disabled.
                                   </p>
                                 )}
+                                {selectedAdapter.id === "sqlserver" && (
+                                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                                    SQL authentication with a SELECT-only account. Requires Microsoft ODBC Driver
+                                    on the backend host. TLS and certificate verification are enabled by default.
+                                  </p>
+                                )}
                                 {selectedAdapter.params.map((field) => (
                                   <div key={field.name}>
                                     <label className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1 block">
@@ -1564,9 +1577,7 @@ function Inspector({
                                     {field.type === "select" ? (
                                       <select
                                         value={
-                                          (currentConfig[
-                                            field.name
-                                          ] as string) || ""
+                                          String(currentConfig[field.name] ?? field.defaultValue ?? "")
                                         }
                                         onChange={(e) =>
                                           handleChange(param, {

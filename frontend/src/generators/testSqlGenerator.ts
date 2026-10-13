@@ -12,6 +12,7 @@ import type { Edge, Node } from "@xyflow/react";
 import type { OperationDefinition } from "../definitions/operations";
 import { buildFilterSQL, type FilterNode } from "./filterSql.ts";
 import { getDefaultDatabaseSchema } from "../definitions/dbtAdapters.ts";
+import { getFlowSqlDialect, type SqlDialect } from "./sqlDialect.ts";
 import {
   quoteColumn,
   quoteIdentifier,
@@ -139,6 +140,13 @@ export function generateExecutableSql(
 
   visit(outputNode.id);
 
+  let dialect: SqlDialect;
+  try {
+    dialect = getFlowSqlDialect(ordered);
+  } catch (error) {
+    return { sql: "", errors: [error instanceof Error ? error.message : String(error)] };
+  }
+
   // Generate CTEs for each node
   const ctes: Array<{ name: string; sql: string }> = [];
   const nodeToCteName = new Map<string, string>();
@@ -228,7 +236,8 @@ export function generateExecutableSql(
         cteName = `filter_${cteCounter++}`;
         const whereClause = buildFilterSQL(
           filterCondition as FilterNode,
-          columnTypes
+          columnTypes,
+          dialect
         );
         if (whereClause) {
           cteSql = `SELECT *\nFROM ${parent}\nWHERE ${whereClause}`;
@@ -275,7 +284,9 @@ export function generateExecutableSql(
             if (agg.function === "COUNT(DISTINCT)") {
               return `COUNT(DISTINCT ${quoteColumn(agg.column)}) AS ${quoteIdentifier(alias)}`;
             }
-            return `${agg.function}(${quoteColumn(agg.column)}) AS ${quoteIdentifier(alias)}`;
+            const column = dialect === "sqlserver" && agg.function === "AVG"
+              ? `CAST(${quoteColumn(agg.column)} AS FLOAT)` : quoteColumn(agg.column);
+            return `${agg.function}(${column}) AS ${quoteIdentifier(alias)}`;
           });
 
           let sql = `SELECT`;
@@ -304,7 +315,7 @@ export function generateExecutableSql(
 
         cteName = `sort_${cteCounter++}`;
         if (sortColumn) {
-          cteSql = `SELECT *\nFROM ${parent}\nORDER BY ${quoteIdentifier(sortColumn)} ${direction}`;
+          cteSql = `SELECT *\nFROM ${parent}\nORDER BY ${quoteIdentifier(sortColumn)} ${direction}${dialect === "sqlserver" ? "\nOFFSET 0 ROWS" : ""}`;
         } else {
           cteSql = `SELECT *\nFROM ${parent}`;
         }
@@ -331,8 +342,8 @@ export function generateExecutableSql(
         if (customSql) {
           // Replace {{parent}} or {{source}} with actual parent CTE name
           cteSql = customSql
-            .replace(/\{\{parent\}\}/gi, parent)
-            .replace(/\{\{source\}\}/gi, parent);
+            .replace(/\{\{\s*parent\s*\}\}/gi, parent)
+            .replace(/\{\{\s*source\s*\}\}/gi, parent);
         } else {
           cteSql = `SELECT *\nFROM ${parent}`;
         }

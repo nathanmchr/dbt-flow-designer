@@ -27,6 +27,9 @@ export interface DatabaseCredentials {
   password?: string;
   sslmode?: string;
   path?: string;
+  driver?: string;
+  encrypt?: boolean;
+  trust_cert?: boolean;
   // Cloud databases
   account?: string;
   warehouse?: string;

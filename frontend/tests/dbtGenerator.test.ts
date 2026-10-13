@@ -393,3 +393,59 @@ test("filter builder rejects unknown operators and formats typed values", () => 
     ""
   );
 });
+
+test("SQL Server exports quoted sources, Unicode/BIT filters and CTE-safe final ordering", () => {
+  const nodes = [
+    node("database", "database", { adapter: { type: "sqlserver", database: "warehouse", password: "do-not-export" } }),
+    node("orders", "source-table", { table: "orders", columns: [
+      { name: "id", type: "INT" }, { name: "label", type: "NVARCHAR" }, { name: "active", type: "BIT" }, { name: "amount", type: "DECIMAL(18,2)" },
+    ] }),
+    node("filter", "filter", { condition: { type: "group", operators: ["AND", "AND"], children: [
+      { type: "condition", column: "label", operator: "=", value: "L'été 東京" },
+      { type: "condition", column: "active", operator: "=", value: true },
+      { type: "condition", column: "amount", operator: ">=", value: "12.5" },
+    ] } }),
+    node("sort", "sort", { column: "amount", direction: "DESC" }), node("output", "dbt-model"),
+  ];
+  const edges = [edge("dt", "database", "orders"), edge("tf", "orders", "filter"), edge("fs", "filter", "sort"), edge("so", "sort", "output")];
+  for (const optimizePipeline of [false, true]) {
+    const result = generateDbtModel(nodes, edges, "SQL Server Orders", { optimizePipeline });
+    assert.deepEqual(result.errors, []);
+    assert.match(file(result, "sources.yml"), /schema: "dbo"/);
+    assert.match(file(result, "sources.yml"), /database: "warehouse"/);
+    const filter = file(result, "int_orders_filtered.sql");
+    assert.match(filter, /"label" = N'L''été 東京'/);
+    assert.match(filter, /"active" = 1/);
+    assert.match(filter, /"amount" >= 12.5/);
+    assert.match(file(result, "int_orders_transformed.sql"), /ORDER BY "amount" DESC\nOFFSET 0 ROWS/);
+    assert.match(file(result, "fct_sql_server_orders.sql"), /ORDER BY "amount" DESC\nOFFSET 0 ROWS/);
+    assert.doesNotMatch(result.files.map((generated) => generated.content).join("\n"), /do-not-export/);
+    assertAllRefsResolve(result);
+  }
+});
+
+test("SQL Server AVG keeps fractions and unsupported NaN is explicit", () => {
+  const database = node("database", "database", { adapter: { type: "sqlserver" } });
+  const table = node("orders", "source-table", { table: "orders", columns: [{ name: "id", type: "INT" }] });
+  const output = node("output", "dbt-model");
+  const aggregate = node("agg", "group-by", { columns: ["id"], aggregations: [{ function: "AVG", column: "id", alias: "avg_id" }] });
+  const result = generateDbtModel([database, table, aggregate, output],
+    [edge("dt", "database", "orders"), edge("ta", "orders", "agg"), edge("ao", "agg", "output")], "Average");
+  assert.deepEqual(result.errors, []);
+  assert.ok(result.files.some((generated) => generated.content.includes('AVG(CAST("id" AS FLOAT))')));
+  assert.throws(() => buildFilterSQL({ type: "condition", column: "id", operator: "IS NaN" }, new Map(), "sqlserver"), /does not support IEEE NaN/);
+});
+
+test("SQL Server refuses a flow mixing engines but ignores disconnected database nodes", () => {
+  const sqlserver = node("db", "database", { adapter: { type: "sqlserver" } });
+  const table = node("orders", "source-table", { table: "orders", columns: [{ name: "id", type: "INT" }] });
+  const other = node("other", "source-table", { table: "other", columns: [{ name: "id", type: "INT" }] });
+  const output = node("output", "dbt-model");
+  const result = generateDbtModel([sqlserver, table, postgresDatabase, output],
+    [edge("dt", "db", "orders"), edge("to", "orders", "output")], "One engine");
+  assert.deepEqual(result.errors, []);
+  const mixed = generateDbtModel([sqlserver, table, postgresDatabase, other, node("union", "join", { type: "INNER", on: { leftColumn: "id", rightColumn: "id", operator: "=" } }), output],
+    [edge("dt", "db", "orders"), edge("po", "database", "other"), edge("tu", "orders", "union", "input-0"),
+     edge("ou", "other", "union", "input-1"), edge("uo", "union", "output")], "Mixed");
+  assert.ok(mixed.errors.some((error) => error.includes("different database engines")));
+});

@@ -64,27 +64,16 @@ function SourceTableSelector({
   const selectedColumnsRef = useRef(selectedColumns);
 
   const adapterType = credentials?.type ?? "";
-  const host = credentials?.host ?? "";
-  const port = credentials?.port;
-  const database = credentials?.database ?? "";
   const schemaName = credentials?.schema_name || getDefaultDatabaseSchema(adapterType);
-  const user = credentials?.user ?? "";
-  const password = credentials?.password;
-  const sslmode = credentials?.sslmode;
-  const path = credentials?.path;
+  // Preserve every adapter option in both transport and invalidation. Do not
+  // persist this key: it is only an in-memory request snapshot.
+  const credentialsKey = credentials ? JSON.stringify(credentials) : "";
   const isSupported = ENABLED_DBT_ADAPTER_IDS.has(adapterType);
   const isConfigured = isDatabaseConfigured(credentials);
   const tablesRequestKey = isConfigured
     ? JSON.stringify([
-        adapterType,
-        host,
-        port,
-        database,
+        credentialsKey,
         schemaName,
-        user,
-        password,
-        sslmode,
-        path,
         tablesReload,
       ])
     : "";
@@ -116,17 +105,7 @@ function SourceTableSelector({
     }
 
     const controller = new AbortController();
-    const requestCredentials: DatabaseCredentials = {
-      type: adapterType,
-      host,
-      port,
-      database,
-      schema_name: schemaName,
-      user,
-      password,
-      sslmode,
-      path,
-    };
+    const requestCredentials: DatabaseCredentials = JSON.parse(credentialsKey);
 
     api
       .getTables(requestCredentials, schemaName, controller.signal)
@@ -150,17 +129,10 @@ function SourceTableSelector({
 
     return () => controller.abort();
   }, [
-    adapterType,
-    database,
-    host,
+    credentialsKey,
     isConfigured,
-    password,
-    path,
-    port,
     schemaName,
-    sslmode,
     tablesRequestKey,
-    user,
   ]);
 
   useEffect(() => {
@@ -169,17 +141,7 @@ function SourceTableSelector({
     }
 
     const controller = new AbortController();
-    const requestCredentials: DatabaseCredentials = {
-      type: adapterType,
-      host,
-      port,
-      database,
-      schema_name: schemaName,
-      user,
-      password,
-      sslmode,
-      path,
-    };
+    const requestCredentials: DatabaseCredentials = JSON.parse(credentialsKey);
 
     api
       .getColumns(
@@ -226,19 +188,12 @@ function SourceTableSelector({
 
     return () => controller.abort();
   }, [
-    adapterType,
+    credentialsKey,
     columnsRequestKey,
-    database,
-    host,
     isConfigured,
     onColumnsChange,
-    password,
-    path,
-    port,
     schemaName,
-    sslmode,
     tableName,
-    user,
   ]);
 
   const changeTable = (nextTableName: string) => {

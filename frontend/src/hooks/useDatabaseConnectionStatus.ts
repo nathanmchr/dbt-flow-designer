@@ -17,15 +17,9 @@ export function useDatabaseConnectionStatus(
   const [status, setStatus] =
     useState<DatabaseConnectionStatus>("offline");
 
-  const adapterType = credentials?.type ?? "";
-  const host = credentials?.host ?? "";
-  const port = credentials?.port;
-  const database = credentials?.database ?? "";
-  const schemaName = credentials?.schema_name;
-  const user = credentials?.user ?? "";
-  const password = credentials?.password;
-  const sslmode = credentials?.sslmode;
-  const path = credentials?.path;
+  // Snapshot all adapter fields, without a PG-specific whitelist. This key stays
+  // in component memory only and avoids refetching on each new object identity.
+  const credentialsKey = credentials ? JSON.stringify(credentials) : "";
   const isConfigured = isDatabaseConfigured(credentials);
 
   useEffect(() => {
@@ -37,17 +31,7 @@ export function useDatabaseConnectionStatus(
     const controller = new AbortController();
     let disposed = false;
     let requestInFlight = false;
-    const requestCredentials: DatabaseCredentials = {
-      type: adapterType,
-      host,
-      port,
-      database,
-      schema_name: schemaName,
-      user,
-      password,
-      sslmode,
-      path,
-    };
+    const requestCredentials: DatabaseCredentials = JSON.parse(credentialsKey);
 
     const checkConnection = async (showChecking: boolean) => {
       if (requestInFlight) return;
@@ -81,18 +65,7 @@ export function useDatabaseConnectionStatus(
       window.clearInterval(intervalId);
       window.removeEventListener("focus", handleFocus);
     };
-  }, [
-    adapterType,
-    database,
-    host,
-    isConfigured,
-    password,
-    path,
-    port,
-    schemaName,
-    sslmode,
-    user,
-  ]);
+  }, [isConfigured, credentialsKey]);
 
   return status;
 }
