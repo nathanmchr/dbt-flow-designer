@@ -217,3 +217,9 @@
 - Erreur : dériver plusieurs noms intermédiaires du même nom de table et d’un suffixe générique, puis rejeter une chaîne valide à cause d’une collision.
 - Règle : allouer un nom unique et stable à chaque modèle intermédiaire avant de produire ses chemins et de résoudre ses références.
 - Explication : Filter/Sort et Custom SQL peuvent tous deux être classés comme « transformed » ; un suffixe numérique distingue leurs modèles sans renommer les exports qui n’ont pas de collision.
+
+## Publication des lots Git
+
+- Erreur : ajouter aux messages de commit ou à la documentation publique une note de procédure non demandée.
+- Règle : garder les messages de commit centrés sur les changements livrés et conserver les détails opérationnels de sauvegarde et de validation dans le suivi local de la tâche.
+- Explication : l’historique doit décrire clairement les fonctionnalités, correctifs et jalons du projet.

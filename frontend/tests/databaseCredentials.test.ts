@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { buildDatabaseCredentials } from "../src/services/databaseCredentials.ts";
+import { buildDatabaseCredentials, isDatabaseConfigured } from "../src/services/databaseCredentials.ts";
+import { ENABLED_DBT_ADAPTER_IDS, getDefaultDatabaseSchema } from "../src/definitions/dbtAdapters.ts";
 
 test("maps the PostgreSQL adapter stored by a Database node", () => {
   assert.deepEqual(
@@ -63,4 +64,21 @@ test("supports nested adapter configuration and rejects missing adapter types", 
     }
   );
   assert.equal(buildDatabaseCredentials({ host: "localhost" }), null);
+});
+
+test("maps local DuckDB paths and uses its own default schema", () => {
+  const credentials = buildDatabaseCredentials({ type: "duckdb", path: "/data/sales.duckdb" });
+  assert.equal(credentials?.path, "/data/sales.duckdb");
+  assert.equal(credentials?.port, undefined);
+  assert.equal(isDatabaseConfigured(credentials), true);
+  assert.equal(getDefaultDatabaseSchema("duckdb"), "main");
+  assert.equal(getDefaultDatabaseSchema("postgres"), "public");
+});
+
+test("does not treat incomplete or unvalidated adapters as live-ready", () => {
+  assert.equal(isDatabaseConfigured(null), false);
+  assert.equal(isDatabaseConfigured({ type: "duckdb" }), false);
+  assert.equal(isDatabaseConfigured({ type: "postgres", host: "localhost" }), false);
+  assert.equal(isDatabaseConfigured({ type: "mysql", host: "localhost", database: "db", user: "reader" }), false);
+  assert.deepEqual([...ENABLED_DBT_ADAPTER_IDS], ["postgres", "duckdb"]);
 });

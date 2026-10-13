@@ -36,7 +36,10 @@ function edge(
 
 const nodes = [
   node("database", "database", {
-    adapter: {
+    adapter: process.argv.includes("--duckdb") ? {
+      type: "duckdb",
+      path: "fixture.duckdb",
+    } : {
       type: "postgres",
       host: "127.0.0.1",
       port: 5432,
@@ -85,6 +88,25 @@ const edges = [
   edge("filter-sort", "filter", "sort"),
   edge("sort-output", "sort", "output"),
 ];
+
+// Extra native-engine cases share the same generated fixture and source tables.
+if (process.argv.includes("--aggregate") || process.argv.includes("--custom-sql")) {
+  const aggregate = process.argv.includes("--aggregate");
+  nodes.splice(nodes.length - 1, 0, aggregate
+    ? node("extra", "group-by", {
+        columns: ["email"],
+        aggregations: [
+          { function: "SUM", column: "amount", alias: "total_amount" },
+          { function: "COUNT", column: "*", alias: "order_count" },
+        ],
+      })
+    : node("extra", "custom-sql", {
+        sql: "SELECT order_id, user_id, amount, email FROM {{ parent }} WHERE amount >= 30",
+      })
+  );
+  edges.pop();
+  edges.push(edge("sort-extra", "sort", "extra"), edge("extra-output", "extra", "output"));
+}
 
 const result = generateDbtModel(nodes, edges, "Orders With Users");
 if (result.errors.length > 0) {

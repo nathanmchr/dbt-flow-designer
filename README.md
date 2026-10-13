@@ -100,8 +100,39 @@ that key separately if encrypted projects must survive a reinstall or move to an
 computer, and never commit or share it. Until a user master password is added, anyone
 who obtains both the application key and a project JSON can decrypt its passwords.
 
-Live dbt testing supports PostgreSQL only. Other adapter definitions are retained
-but hidden from the Database dropdown until their full path is validated.
+Live dbt testing supports PostgreSQL and local DuckDB. Other adapter definitions
+are retained but hidden from the Database dropdown until their full path is validated.
+See [the multi-database roadmap](docs/architecture/adr-001-multi-database.md) for
+the enterprise SQL and data/BI coverage plan and its activation criteria.
+
+## Testing a flow on DuckDB
+
+Create a local fixture without overwriting any existing database:
+
+```bash
+backend/venv/bin/python scripts/local-duckdb.py
+```
+
+Select **DuckDB** in the Database node, enter the absolute file path printed by
+the script, and leave Schema blank for `main`. The file must exist on the machine
+running the backend, not merely on the browser's machine. The fixture has
+100 customers, 1,000 orders, and the `order_summary` view.
+
+Tables, columns, the live indicator, model preview, pagination, search, sorting
+and statistics use the actual DuckDB file. The API compiles with `dbt-duckdb`;
+previews and compilation connections open the file read-only. External file access
+and automatic extension loading are disabled. Each native preview has a 30-second
+interrupt timer and a 256 MB memory limit; compiled dbt still has a 120-second timeout.
+Missing files and in-memory sources are rejected rather than silently creating a file.
+
+The ZIP is an ordinary dbt project, not a saved preview. To build it, install
+`dbt-duckdb` and supply a normal writable target profile. Do not build into a
+production source file: use a separate output database with the source attached
+read-only and explicitly qualified in `sources.yml`, or a disposable test copy.
+
+DuckDB currently covers local database files only, not MotherDuck, cloud files,
+attached databases or extensions. Cloud and enterprise adapters will be validated
+separately; listed future engines are not claimed as already functional.
 
 ## Verification
 
@@ -125,6 +156,7 @@ RUN_LIVE_POSTGRES_TEST=1 PYTHONPATH=backend \
 ## Current execution safeguards
 
 - PostgreSQL sessions default to read-only mode.
+- DuckDB connections require existing local files and disable writes and external file access.
 - Native preview statements have a 30-second timeout and return at most 250 rows per page.
 - dbt compilation has a 120-second timeout and uses read-only connection defaults.
 - Generated file paths are constrained to the preview dbt project.
